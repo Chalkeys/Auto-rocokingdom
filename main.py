@@ -243,7 +243,6 @@ def best_match_score(frame_processed: np.ndarray, templates: List[Template], sca
             best_name = tpl.name
             # Center of the match
             best_loc = (max_loc[0] + tw // 2, max_loc[1] + th // 2)
-
     return best_score, best_name, best_loc, all_scores
 
 
@@ -341,18 +340,22 @@ def run() -> None:
     print("\n请选择运行模式:")
     print("1: 聚能模式 (自动键入 X)")
     print("2: 逃跑模式 (自动键入 ESC 并点击确认)")
-    print("3: 战斗计数 (仅计数，不执行自动操作)")
+    print("3: 污染计数 (仅计数，不执行自动操作)")
+    print("4: 智能模式 (污染战斗=聚能，普通战斗=逃跑)")
     print("有问题或新功能建议请提 issue。如果这个项目对你有帮助，欢迎点个 Star 支持一下。")
     print("\n[提示] 脚本支持自适应分辨率，推荐使用 2K（2560x1600 或 2560x1440）以获得更高识别精度。")
     print("分辨率越低 Score 可能越低；若识别异常，可在当前分辨率下重截 templates 进行适配。")
     print("[提示] 逃跑模式使用物理点击，请确保“是”按钮露出且不被其他窗口遮挡。")
-    choice = input("请输入选项 (1 / 2 / 3): ").strip()
+    choice = input("请输入选项 (1 / 2 / 3 / 4): ").strip()
     if choice == "2":
         mode = "escape"
         mode_label = "逃跑模式"
     elif choice == "3":
         mode = "count_only"
-        mode_label = "战斗计数模式"
+        mode_label = "污染计数模式"
+    elif choice == "4":
+        mode = "smart"
+        mode_label = "智能模式"
     else:
         mode = "battle"
         mode_label = "聚能模式"
@@ -365,6 +368,8 @@ def run() -> None:
     templates = load_templates()
     interval = normalize_poll_interval(CONFIG.poll_interval_sec)
     chat_template_key = normalize_template_name(CONFIG.chat_template_name)
+    capture_template_key = normalize_template_name(CONFIG.capture_template_name)
+    pollute_capture_template_key = normalize_template_name(CONFIG.pollute_capture_template_name)
     loaded_template_keys = {normalize_template_name(t.name) for t in templates}
     if chat_template_key not in loaded_template_keys:
         logging.warning(
@@ -379,13 +384,36 @@ def run() -> None:
     else:
         logging.info("聊天模板已加载: %s", chat_template_key)
 
+    if mode == "smart":
+        if capture_template_key not in loaded_template_keys:
+            logging.warning(
+                "智能模式缺少普通战斗模板: 配置=%s",
+                CONFIG.capture_template_name,
+            )
+        if pollute_capture_template_key not in loaded_template_keys:
+            logging.warning(
+                "智能模式缺少污染战斗模板: 配置=%s",
+                CONFIG.pollute_capture_template_name,
+            )
+
     hit_streak = 0
     miss_streak = 0
     in_battle_state = False
     last_trigger_time = 0.0
 
     battle_count = 0
+    pollute_count = 0
     chat_detected_last = False
+    smart_battle_action_mode: Optional[str] = None
+
+    def classify_battle_mode(
+        capture_score: float,
+        pollute_capture_score: float,
+    ) -> str:
+        # 规则：pollute_capture 分数更高则判定为污染战斗，否则普通战斗。
+        if pollute_capture_score > capture_score:
+            return "battle"
+        return "escape"
 
     with mss.mss() as sct:
         while True:
@@ -453,18 +481,53 @@ def run() -> None:
                 0.0,
             )
             chat_detected_current = chat_score >= CONFIG.match_threshold
+            capture_score = next(
+                (s for n, s in all_matches if normalize_template_name(n) == capture_template_key),
+                0.0,
+            )
+            pollute_capture_score = next(
+                (s for n, s in all_matches if normalize_template_name(n) == pollute_capture_template_key),
+                0.0,
+            )
 
+            battle_start_by_chat = False
             if not chat_detected_last and chat_detected_current:
+                battle_start_by_chat = True
+
+            if battle_start_by_chat:
                 battle_count += 1
+                is_pollute_battle = pollute_capture_score > capture_score
+                if is_pollute_battle:
+                    pollute_count += 1
                 logging.info(
-                    "检测到新战斗，当前战斗次数=%d（聊天分数=%.3f）",
-                    battle_count,
-                    chat_score,
+                    "检测到新战斗，当前污染次数=%d（判型=%s, capture=%.3f, pollute_capture=%.3f）",
+                    pollute_count,
+                    "污染" if is_pollute_battle else "普通",
+                    capture_score,
+                    pollute_capture_score,
                 )
                 log_audit(
                     "战斗次数增加",
                     战斗次数=battle_count,
+                    污染次数=pollute_count,
                 )
+
+                if mode == "smart":
+                    smart_battle_action_mode = classify_battle_mode(capture_score, pollute_capture_score)
+                    smart_mode_label = "聚能" if smart_battle_action_mode == "battle" else "逃跑"
+                    logging.info(
+                        "智能模式判型: 本场战斗=%s（capture=%.3f, pollute_capture=%.3f）",
+                        smart_mode_label,
+                        capture_score,
+                        pollute_capture_score,
+                    )
+                    log_audit(
+                        "智能模式判型",
+                        战斗次数=battle_count,
+                        本场动作=smart_battle_action_mode,
+                        capture分数=round(capture_score, 4),
+                        pollute_capture分数=round(pollute_capture_score, 4),
+                    )
             chat_detected_last = chat_detected_current
 
             if is_hit:
@@ -479,22 +542,32 @@ def run() -> None:
             else:
                 detected = miss_streak < CONFIG.release_misses
 
+            battle_start_by_state = (not in_battle_state) and detected
+            battle_end_by_state = in_battle_state and (not detected)
+
+            if mode == "smart" and battle_start_by_state and smart_battle_action_mode is None:
+                # 兜底：若聊天模板未命中导致未在 chat 事件中判型，则在状态进入战斗时判一次。
+                smart_battle_action_mode = classify_battle_mode(capture_score, pollute_capture_score)
+                smart_mode_label = "聚能" if smart_battle_action_mode == "battle" else "逃跑"
+                logging.info(
+                    "智能模式兜底判型: 本场战斗=%s（capture=%.3f, pollute_capture=%.3f）",
+                    smart_mode_label,
+                    capture_score,
+                    pollute_capture_score,
+                )
+
             if mode == "count_only":
                 logging.info(
-                    "聊天检测=%s 聊天分数=%.3f 战斗次数=%d",
-                    chat_detected_current,
-                    chat_score,
-                    battle_count,
+                    "污染次数=%d",
+                    pollute_count,
                 )
             else:
                 logging.info(
-                    "行动检测=%s 行动分数=%.3f 检测模板=%s 聊天检测=%s 聊天分数=%.3f 战斗次数=%d",
+                    "行动检测=%s 行动分数=%.3f 检测模板=%s 污染次数=%d",
                     is_hit,
                     action_score,
                     action_template,
-                    chat_detected_current,
-                    chat_score,
-                    battle_count,
+                    pollute_count,
                 )
 
             now = time.time()
@@ -505,13 +578,23 @@ def run() -> None:
                 # IMPORTANT: Only trigger if we actually matched a template (is_hit)
                 # This prevents triggering on "miss_streak" logic when we haven't seen the target
                 if is_hit and (now - last_trigger_time >= CONFIG.trigger_cooldown_sec):
-                    if mode == "battle":
+                    effective_mode = mode
+                    if mode == "smart":
+                        effective_mode = smart_battle_action_mode or "escape"
+
+                    if effective_mode == "battle":
                         press_once(hwnd, CONFIG.press_key)
                         last_trigger_time = now
-                        logging.info("已触发按键: %s（连续模式）", CONFIG.press_key)
-                    elif mode == "escape":
+                        if mode == "smart":
+                            logging.info("智能模式动作: 已触发按键 %s（本场=聚能）", CONFIG.press_key)
+                        else:
+                            logging.info("已触发按键: %s（连续模式）", CONFIG.press_key)
+                    elif effective_mode == "escape":
                         press_once(hwnd, "esc")
-                        logging.info("已触发 ESC")
+                        if mode == "smart":
+                            logging.info("智能模式动作: 已触发 ESC（本场=逃跑）")
+                        else:
+                            logging.info("已触发 ESC")
                         
                         # Capture again to find "Yes" button in popup
                         button_clicked = False
@@ -556,19 +639,22 @@ def run() -> None:
                                 click_ok = click_at(hwnd, click_x, click_y)
                                 button_clicked = click_ok
                                 if click_ok:
-                                    log_audit("逃跑确认点击成功", 模式=mode)
+                                    log_audit("逃跑确认点击成功", 模式=effective_mode)
                                     break
                         
                         if not button_clicked:
                             logging.warning("触发 ESC 后未找到确认按钮 yes.png")
                             log_audit(
                                 "逃跑确认点击失败",
-                                模式=mode,
+                                模式=effective_mode,
                                 最佳是按钮分数=round(yes_best_score, 4),
                             )
                         
                         # Use a longer cooldown for escape to prevent ESC spamming while dialog is closing
                         last_trigger_time = now + 2.0 
+
+            if mode == "smart" and battle_end_by_state:
+                smart_battle_action_mode = None
 
             in_battle_state = detected
             time.sleep(interval)

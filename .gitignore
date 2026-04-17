@@ -19,9 +19,6 @@ env/
 .vscode/
 
 # Project specific
-capture.png
-template.png
-image.png
 *.new
 
 run.bat

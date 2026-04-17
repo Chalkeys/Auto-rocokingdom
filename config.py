@@ -40,6 +40,8 @@ class AppConfig:
     template_dir: str = "templates"
     template_pattern: str = "*.png"
     chat_template_name: str = "chat.png"
+    capture_template_name: str = "capture.png"
+    pollute_capture_template_name: str = "pollute_capture.png"
 
     # Runtime controls.
     stop_hotkey: str = "f8"
