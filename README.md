@@ -4,6 +4,12 @@
 
 ---
 
+感谢 [Iamacrazycat](https://github.com/Iamacrazycat) 对本项目的关注与二次开发。
+
+- 代码重构 + 云打包：https://github.com/Iamacrazycat/Auto-rocokingdom
+- Android 手机端版本：https://github.com/Iamacrazycat/Auto-rocokingdom-autojs6
+
+---
 ## 🗓️ 更新日志
 
 ### 2026-04-17
