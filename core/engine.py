@@ -1,6 +1,7 @@
 import logging
+import threading
 import time
-from typing import List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import mss
 
@@ -20,8 +21,19 @@ from modes.base import BaseMode, BattleEvent
 
 
 class Engine:
-    def __init__(self, mode: BaseMode) -> None:
+    def __init__(
+        self,
+        mode: BaseMode,
+        stop_event: Optional[threading.Event] = None,
+        status_callback: Optional[Callable[[Dict], None]] = None,
+    ) -> None:
         self._mode = mode
+        self._stop_event = stop_event if stop_event is not None else threading.Event()
+        self._status_callback = status_callback
+
+    def _push_status(self, **kwargs: object) -> None:
+        if self._status_callback is not None:
+            self._status_callback(kwargs)
 
     def run(self) -> None:
         logging.info("检测器已启动，按 Ctrl+C 退出。")
@@ -70,10 +82,11 @@ class Engine:
             win32gui = None
 
         with mss.mss() as sct:
-            while True:
+            while not self._stop_event.is_set():
                 hwnd = find_window_by_keyword(CONFIG.window_title_keyword)
                 if hwnd is None:
                     logging.warning("未找到游戏窗口: %s", CONFIG.window_title_keyword)
+                    self._push_status(state="未找到游戏窗口")
                     time.sleep(interval)
                     continue
 
@@ -211,4 +224,10 @@ class Engine:
                     self._mode.on_battle_end(event)
 
                 in_battle_state = detected
+                self._push_status(
+                    battle_count=battle_count,
+                    pollute_count=pollute_count,
+                    state="战斗中" if in_battle_state else "待机",
+                    score=action_score,
+                )
                 time.sleep(interval)
