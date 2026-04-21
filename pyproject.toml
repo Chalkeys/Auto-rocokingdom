@@ -1,0 +1,11 @@
+[project]
+name = "auto-rocokingdom"
+version = "0.1.0"
+description = "洛克王国：世界 自动化助手（基于图像识别）"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python>=4.9.0.80",
+    "numpy>=1.26.4",
+    "mss>=9.0.1",
+    "pywin32>=306",
+]

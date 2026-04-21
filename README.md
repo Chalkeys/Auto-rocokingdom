@@ -12,6 +12,11 @@
 ---
 ## 🗓️ 更新日志
 
+### 2026-04-21
+
+1. 新增 `pyproject.toml`，支持使用 `uv sync` 一键安装依赖，安装更快更可靠。
+2. README 安装步骤更新，推荐使用 `uv` 作为首选安装方式。
+
 ### 2026-04-20
 
 1. 模块化重构：将单体 `main.py`（665行）拆分为 `core/` 和 `modes/` 两个包，职责分离，便于维护。
@@ -74,9 +79,22 @@
 3.  **注意**：为了确保脚本能向游戏发送点击指令，必须使用管理员模式。
 
 ### 第三步：安装依赖库
-定位到本项目文件夹，运行以下命令安装必要的运行库：
+
+**推荐：使用 uv（更快、更可靠）**
+
+如果尚未安装 uv，先运行：
 ```bash
-pip install opencv-python numpy mss keyboard pywin32
+pip install uv
+```
+
+然后在项目文件夹中执行：
+```bash
+uv sync
+```
+
+**备选：使用 pip**
+```bash
+pip install opencv-python numpy mss pywin32
 ```
 
 ### 第四步：启动脚本
