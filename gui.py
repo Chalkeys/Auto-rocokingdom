@@ -110,7 +110,7 @@ class App(tk.Tk):
 
         ttk.Label(
             self,
-            text="点击"停止运行"或关闭窗口可随时退出",
+            text='点击"停止运行"或关闭窗口可随时退出',
             foreground="gray",
             font=("", 8),
         ).pack(pady=(0, 6))
