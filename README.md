@@ -17,6 +17,7 @@
 1. 新增 `pyproject.toml`，支持使用 `uv sync` 一键安装依赖，安装更快更可靠。
 2. README 安装步骤更新，推荐使用 `uv` 作为首选安装方式。
 3. 新增图形界面 `gui.py`（基于 tkinter，无需额外依赖）：模式选择、实时状态展示、运行日志面板、一键开始/停止。
+4. 新增 `AutoRoco.spec`，支持 `uv run pyinstaller AutoRoco.spec` 一键打包为独立 `.exe`，无需目标机器安装 Python。
 
 ### 2026-04-20
 
@@ -115,6 +116,24 @@ python main.py
 ```
 
 根据屏幕提示输入 `1`、`2`、`3` 或 `4` 选择功能模式。
+
+---
+
+## 📦 打包为 .exe
+
+如需将程序打包成独立的可执行文件（无需安装 Python），在管理员终端中执行：
+
+```bash
+# 安装打包工具（仅首次需要）
+uv sync --group dev
+
+# 打包
+uv run pyinstaller AutoRoco.spec
+```
+
+打包完成后，`dist/AutoRoco.exe` 即为独立可执行文件，将其连同 `logs/`（运行时自动生成）分发给其他用户即可，对方无需安装任何依赖。
+
+> **注意**：若系统未安装 UPX，打包时会出现相关提示，可忽略，不影响输出结果。
 
 ---
 

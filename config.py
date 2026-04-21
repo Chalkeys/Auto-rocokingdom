@@ -1,4 +1,13 @@
 from dataclasses import dataclass
+import os
+import sys
+
+
+def resource_path(relative: str) -> str:
+    """Resolve a path that works both in development and in a PyInstaller bundle."""
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, relative)
+    return relative
 
 
 @dataclass(frozen=True)

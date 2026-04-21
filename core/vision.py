@@ -7,7 +7,7 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 
-from config import CONFIG
+from config import CONFIG, resource_path
 
 
 @dataclass
@@ -41,7 +41,7 @@ def preprocess(image_bgr: np.ndarray) -> np.ndarray:
 
 
 def load_templates() -> List[Template]:
-    pattern = os.path.join(CONFIG.template_dir, CONFIG.template_pattern)
+    pattern = os.path.join(resource_path(CONFIG.template_dir), CONFIG.template_pattern)
     paths = sorted(glob.glob(pattern))
     templates: List[Template] = []
 
