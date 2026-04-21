@@ -10,6 +10,7 @@ from tkinter import scrolledtext, ttk
 from config import CONFIG
 from core.engine import Engine
 from core.logger import setup_logging
+from core.window import find_all_windows_by_keyword
 from modes import MODE_REGISTRY
 
 
@@ -34,6 +35,8 @@ class App(tk.Tk):
         self._stop_event = threading.Event()
         self._msg_queue: queue.Queue = queue.Queue()
         self._engine_thread: threading.Thread | None = None
+        # hwnd list parallel to combobox values; index 0 = auto (None)
+        self._hwnd_list: list[int | None] = [None]
 
         setup_logging()
         self._install_log_handler()
@@ -66,6 +69,15 @@ class App(tk.Tk):
                 variable=self._mode_var,
                 value=key,
             ).pack(anchor="w", pady=2)
+
+        # Window picker
+        win_frame = ttk.LabelFrame(self, text="目标窗口", padding=8)
+        win_frame.pack(fill="x", **pad)
+
+        self._win_combo = ttk.Combobox(win_frame, state="readonly", width=38)
+        self._win_combo.pack(side="left", fill="x", expand=True)
+        ttk.Button(win_frame, text="刷新", width=6, command=self._refresh_windows).pack(side="left", padx=(6, 0))
+        self._refresh_windows()
 
         # Status
         status_frame = ttk.LabelFrame(self, text="实时状态", padding=8)
@@ -117,6 +129,15 @@ class App(tk.Tk):
 
     # ---------------------------------------------------------------- control
 
+    def _refresh_windows(self) -> None:
+        wins = find_all_windows_by_keyword(CONFIG.window_title_keyword)
+        self._hwnd_list = [None] + [hwnd for hwnd, _ in wins]
+        labels = ["自动（首个匹配）"] + [
+            f"{title}  [0x{hwnd:08X}]" for hwnd, title in wins
+        ]
+        self._win_combo["values"] = labels
+        self._win_combo.current(0)
+
     def _toggle(self) -> None:
         if self._engine_thread and self._engine_thread.is_alive():
             self._do_stop()
@@ -127,28 +148,36 @@ class App(tk.Tk):
         self._stop_event.clear()
         key = self._mode_var.get()
         mode = MODE_REGISTRY[key]()
+        idx = self._win_combo.current()
+        target_hwnd = self._hwnd_list[idx] if 0 <= idx < len(self._hwnd_list) else None
         engine = Engine(
             mode,
             stop_event=self._stop_event,
             status_callback=lambda s: self._msg_queue.put(("status", s)),
+            target_hwnd=target_hwnd,
         )
         self._engine_thread = threading.Thread(target=engine.run, daemon=True)
         self._engine_thread.start()
         self._btn.config(text="停止运行")
         self._state_var.set("运行中…")
-        self._set_mode_state("disabled")
+        self._set_controls_state("disabled")
 
     def _do_stop(self) -> None:
         self._stop_event.set()
         self._btn.config(text="开始运行")
         self._state_var.set("已停止")
-        self._set_mode_state("normal")
+        self._set_controls_state("normal")
 
-    def _set_mode_state(self, state: str) -> None:
+    def _set_controls_state(self, state: str) -> None:
         for child in self.winfo_children():
-            if isinstance(child, ttk.LabelFrame) and child.cget("text") == "选择模式":
+            if not isinstance(child, ttk.LabelFrame):
+                continue
+            if child.cget("text") == "选择模式":
                 for rb in child.winfo_children():
                     rb.config(state=state)
+            elif child.cget("text") == "目标窗口":
+                for w in child.winfo_children():
+                    w.config(state=state if state == "disabled" else ("readonly" if isinstance(w, ttk.Combobox) else state))
 
     def _on_close(self) -> None:
         self._stop_event.set()

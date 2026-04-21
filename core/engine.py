@@ -16,7 +16,7 @@ from core.vision import (
     normalize_template_name,
     preprocess,
 )
-from core.window import find_window_by_keyword, get_client_rect_on_screen
+from core.window import find_window_by_keyword, get_client_rect_on_screen, find_all_windows_by_keyword
 from modes.base import BaseMode, BattleEvent
 
 
@@ -26,10 +26,12 @@ class Engine:
         mode: BaseMode,
         stop_event: Optional[threading.Event] = None,
         status_callback: Optional[Callable[[Dict], None]] = None,
+        target_hwnd: Optional[int] = None,
     ) -> None:
         self._mode = mode
         self._stop_event = stop_event if stop_event is not None else threading.Event()
         self._status_callback = status_callback
+        self._target_hwnd = target_hwnd
 
     def _push_status(self, **kwargs: object) -> None:
         if self._status_callback is not None:
@@ -77,13 +79,16 @@ class Engine:
         chat_detected_last = False
 
         try:
-            import win32gui
+            import win32gui as _win32gui
         except ImportError:
-            win32gui = None
+            _win32gui = None
 
         with mss.mss() as sct:
             while not self._stop_event.is_set():
-                hwnd = find_window_by_keyword(CONFIG.window_title_keyword)
+                if self._target_hwnd is not None:
+                    hwnd = self._target_hwnd if (_win32gui and _win32gui.IsWindow(self._target_hwnd)) else None
+                else:
+                    hwnd = find_window_by_keyword(CONFIG.window_title_keyword)
                 if hwnd is None:
                     logging.warning("未找到游戏窗口: %s", CONFIG.window_title_keyword)
                     self._push_status(state="未找到游戏窗口")
