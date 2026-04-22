@@ -1,23 +1,19 @@
-# PyInstaller spec for AutoRoco GUI
-# Build: uv run pyinstaller AutoRoco.spec
-# Output: dist/AutoRoco.exe
+# PyInstaller spec for Flower 刷花助手
+# Build: uv run pyinstaller Flower.spec
+# Output: dist/Flower.exe
 
 block_cipher = None
 
 a = Analysis(
-    ["gui.py"],
+    ["flower.py"],
     pathex=["."],
     binaries=[],
-    datas=[
-        ("templates", "templates"),
-    ],
+    datas=[],
     hiddenimports=[
         "win32api",
         "win32con",
         "win32gui",
-        "win32print",
         "pywintypes",
-        "mss.windows",
     ],
     hookspath=[],
     hooksconfig={},
@@ -38,7 +34,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="AutoRoco",
+    name="Flower",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
