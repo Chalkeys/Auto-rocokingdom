@@ -46,7 +46,7 @@ def _resolve_hwnd(target, keyword):
 # ──────────────────────────────── workers ────────────────────────────────────
 
 def _plan1_worker(target_hwnd, n_sec: float, stop: threading.Event, push):
-    """方案1：Tab → 3 → 等 n_sec 秒 → 3，循环。"""
+    """方案1：按 3，等 n_sec 秒，重复。"""
     count = 0
     while not stop.is_set():
         hwnd = _resolve_hwnd(target_hwnd, CONFIG.window_title_keyword)
@@ -56,19 +56,12 @@ def _plan1_worker(target_hwnd, n_sec: float, stop: threading.Event, push):
             continue
 
         count += 1
-        push(f"第 {count} 次：Tab → 3")
-        logging.info("[刷花] 方案1 第 %d 次：Tab + 3", count)
-        press_once(hwnd, "tab");  time.sleep(0.15)
+        push(f"第 {count} 次：按 3")
+        logging.info("[刷花] 方案1 第 %d 次：按3", count)
         press_once(hwnd, "3")
 
-        if _wait(n_sec, stop, lambda r, c=count: push(f"第 {c} 次：{r}s 后按第二个 3")):
+        if _wait(n_sec, stop, lambda r, c=count: push(f"第 {c} 次完成，{r}s 后再按")):
             break
-
-        hwnd = _resolve_hwnd(target_hwnd, CONFIG.window_title_keyword)
-        if hwnd and not stop.is_set():
-            push(f"第 {count} 次：第二次按 3")
-            press_once(hwnd, "3")
-            logging.info("[刷花] 方案1 第 %d 次：第二次按3", count)
 
 
 def _plan2_worker(target_hwnd, x_min: float, stop: threading.Event, push):
@@ -160,7 +153,7 @@ class App(tk.Tk):
 
         # 方案1
         ttk.Radiobutton(
-            pf, text="方案1：小号大笑  Tab → 3 → ns → 3",
+            pf, text="方案1：小号大笑  每隔 ns 按一次 3",
             variable=self._plan_var, value="1", command=self._on_plan_change,
         ).pack(anchor="w")
 
