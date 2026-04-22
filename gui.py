@@ -131,9 +131,9 @@ class App(tk.Tk):
 
     def _refresh_windows(self) -> None:
         wins = find_all_windows_by_keyword(CONFIG.window_title_keyword)
-        self._hwnd_list = [None] + [hwnd for hwnd, _ in wins]
+        self._hwnd_list = [None] + [hwnd for hwnd, *_ in wins]
         labels = ["自动（首个匹配）"] + [
-            f"{title}  [0x{hwnd:08X}]" for hwnd, title in wins
+            f"{title}  {w}×{h}  [0x{hwnd:08X}]" for hwnd, title, w, h in wins
         ]
         self._win_combo["values"] = labels
         self._win_combo.current(0)
