@@ -1,8 +1,10 @@
 """GUI entry point for Auto-rocokingdom."""
 from __future__ import annotations
 
+import ctypes
 import logging
 import queue
+import sys
 import threading
 import tkinter as tk
 from tkinter import scrolledtext, ttk
@@ -219,7 +221,25 @@ class App(tk.Tk):
             self._score_var.set(f"{val:.3f}" if isinstance(val, float) else "—")
 
 
+def _ensure_admin() -> None:
+    """若当前进程没有管理员权限，则通过 UAC 重新以管理员身份启动。"""
+    try:
+        if ctypes.windll.shell32.IsUserAnAdmin():
+            return
+    except Exception:
+        return
+    if getattr(sys, "frozen", False):
+        exe = sys.executable
+        params = " ".join(f'"{a}"' for a in sys.argv[1:])
+    else:
+        exe = sys.executable
+        params = " ".join(f'"{a}"' for a in sys.argv)
+    ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, params, None, 1)
+    sys.exit(0)
+
+
 def main() -> None:
+    _ensure_admin()
     app = App()
     app.mainloop()
 

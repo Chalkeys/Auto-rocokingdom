@@ -1,8 +1,10 @@
 """刷花助手 —— 独立脚本，不依赖自动逃跑模块。"""
 from __future__ import annotations
 
+import ctypes
 import logging
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -300,7 +302,28 @@ class App(tk.Tk):
         self.after(100, self._poll)
 
 
+def _ensure_admin() -> None:
+    """若当前进程没有管理员权限，则通过 UAC 重新以管理员身份启动。"""
+    try:
+        if ctypes.windll.shell32.IsUserAnAdmin():
+            return
+    except Exception:
+        return
+    # 未提权：用 ShellExecuteW "runas" 动词重新启动
+    if getattr(sys, "frozen", False):
+        # PyInstaller 打包后，exe 本身就是入口
+        exe = sys.executable
+        params = " ".join(f'"{a}"' for a in sys.argv[1:])
+    else:
+        # 普通 Python 脚本
+        exe = sys.executable
+        params = " ".join(f'"{a}"' for a in sys.argv)
+    ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, params, None, 1)
+    sys.exit(0)
+
+
 def main() -> None:
+    _ensure_admin()
     app = App()
     app.mainloop()
 
