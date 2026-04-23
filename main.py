@@ -4,6 +4,25 @@ from config import CONFIG
 from core.engine import Engine
 from core.logger import setup_logging
 from modes import MODE_REGISTRY
+from modes.smart import ACTION_OPTIONS, SmartMode
+
+
+def _action_label(action: str) -> str:
+    for _, (key, label) in ACTION_OPTIONS.items():
+        if key == action:
+            return label
+    return action
+
+
+def _prompt_action(battle_type: str, default: str) -> str:
+    print(f"\n请选择遇到【{battle_type}】时的行为:")
+    for key, (_, label) in ACTION_OPTIONS.items():
+        marker = "（默认）" if ACTION_OPTIONS[key][0] == default else ""
+        print(f"  {key}: {label}{marker}")
+    choice = input(f"请输入选项 ({'/'.join(ACTION_OPTIONS.keys())}): ").strip()
+    if choice in ACTION_OPTIONS:
+        return ACTION_OPTIONS[choice][0]
+    return default
 
 
 def main() -> None:
@@ -21,8 +40,27 @@ def main() -> None:
     choices = "/".join(sorted(MODE_REGISTRY.keys()))
     choice = input(f"请输入选项 ({choices}): ").strip()
 
-    mode_cls = MODE_REGISTRY.get(choice, MODE_REGISTRY["1"])
-    mode = mode_cls()
+    if choice == "4":
+        pollute_action = "gather"
+        normal_action = "escape"
+
+        print("\n当前智能模式默认配置:")
+        print(f"  污染战斗 → {_action_label(pollute_action)}")
+        print(f"  普通战斗 → {_action_label(normal_action)}")
+
+        customize = input("是否修改配置？(y/N): ").strip().lower()
+        if customize == "y":
+            pollute_action = _prompt_action("污染战斗", pollute_action)
+            normal_action = _prompt_action("普通战斗", normal_action)
+            print(f"\n已应用自定义配置:")
+            print(f"  污染战斗 → {_action_label(pollute_action)}")
+            print(f"  普通战斗 → {_action_label(normal_action)}")
+
+        mode = SmartMode(pollute_action=pollute_action, normal_action=normal_action)
+    else:
+        mode_cls = MODE_REGISTRY.get(choice, MODE_REGISTRY["1"])
+        mode = mode_cls()
+
     logging.info("已选择模式: %s", mode.label)
     from core.logger import log_audit
     log_audit("模式已选择", 模式=mode.name)
