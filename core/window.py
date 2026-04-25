@@ -1,6 +1,6 @@
 import ctypes
 import logging
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from config import CONFIG
 
@@ -14,6 +14,28 @@ try:
     ctypes.windll.user32.SetProcessDPIAware()
 except Exception:
     pass
+
+
+def find_all_windows_by_keyword(keyword: str) -> List[Tuple[int, str, int, int]]:
+    """返回所有标题包含 keyword 的可见窗口，列表元素为 (hwnd, title, client_w, client_h)。"""
+    if win32gui is None:
+        return []
+    results: List[Tuple[int, str, int, int]] = []
+    keyword_lc = keyword.lower()
+
+    def _handler(hwnd: int, _ctx: object) -> None:
+        if not win32gui.IsWindowVisible(hwnd):
+            return
+        title = win32gui.GetWindowText(hwnd)
+        if title and keyword_lc in title.lower():
+            try:
+                l, t, r, b = win32gui.GetClientRect(hwnd)
+                results.append((hwnd, title, r - l, b - t))
+            except Exception:
+                results.append((hwnd, title, 0, 0))
+
+    win32gui.EnumWindows(_handler, None)
+    return results
 
 
 def find_window_by_keyword(keyword: str) -> Optional[int]:

@@ -10,18 +10,26 @@ import win32api
 import win32con
 
 
+_VK_MAP = {
+    "esc": win32con.VK_ESCAPE,
+    "tab": win32con.VK_TAB,
+    "enter": win32con.VK_RETURN,
+    "space": win32con.VK_SPACE,
+}
+
+
 def press_once(hwnd: int, key: str) -> None:
     if win32gui is None:
         logging.info("非 Windows 环境，模拟按键: %s", key)
         return
 
-    if key.lower() == "esc":
-        vk_code = win32con.VK_ESCAPE
-    elif len(key) == 1:
-        vk_code = win32api.VkKeyScan(key) & 0xFF
-    else:
-        logging.warning("不支持的按键字符串: %s", key)
-        return
+    vk_code = _VK_MAP.get(key.lower())
+    if vk_code is None:
+        if len(key) == 1:
+            vk_code = win32api.VkKeyScan(key) & 0xFF
+        else:
+            logging.warning("不支持的按键字符串: %s", key)
+            return
 
     scan_code = win32api.MapVirtualKey(vk_code, 0)
 

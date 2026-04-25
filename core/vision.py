@@ -7,7 +7,7 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 
-from config import CONFIG
+from config import CONFIG, resource_path
 
 
 @dataclass
@@ -41,7 +41,7 @@ def preprocess(image_bgr: np.ndarray) -> np.ndarray:
 
 
 def load_templates() -> List[Template]:
-    pattern = os.path.join(CONFIG.template_dir, CONFIG.template_pattern)
+    pattern = os.path.join(resource_path(CONFIG.template_dir), CONFIG.template_pattern)
     paths = sorted(glob.glob(pattern))
     templates: List[Template] = []
 
@@ -97,6 +97,33 @@ def best_match_score(
             best_name = tpl.name
             best_loc = (max_loc[0] + tw // 2, max_loc[1] + th // 2)
     return best_score, best_name, best_loc, all_scores
+
+
+def match_single(
+    frame_processed: np.ndarray,
+    templates: List[Template],
+    target_name: str,
+    scale: float = 1.0,
+) -> float:
+    """Match a single template by normalized name, return its best score."""
+    target_key = normalize_template_name(target_name)
+    fh, fw = frame_processed.shape[:2]
+
+    for tpl in templates:
+        if normalize_template_name(tpl.name) != target_key:
+            continue
+        tpl_img = tpl.image
+        if abs(scale - 1.0) > 0.01:
+            new_w = max(1, int(tpl_img.shape[1] * scale))
+            new_h = max(1, int(tpl_img.shape[0] * scale))
+            tpl_img = cv2.resize(tpl_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        th, tw = tpl_img.shape[:2]
+        if th > fh or tw > fw:
+            continue
+        result = cv2.matchTemplate(frame_processed, tpl_img, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, _ = cv2.minMaxLoc(result)
+        return float(max_val)
+    return 0.0
 
 
 def best_yes_score_and_loc(
