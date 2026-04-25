@@ -34,7 +34,7 @@ class AppConfig:
     escape_click_method: str = "physical"
 
     # Detection settings.
-    match_threshold: float = 0.50
+    match_threshold: float = 0.40
     required_hits: int = 1
     release_misses: int = 2
     use_edge_match: bool = True
@@ -48,9 +48,14 @@ class AppConfig:
     # Templates.
     template_dir: str = "templates"
     template_pattern: str = "*.png"
-    chat_template_name: str = "chat.png"
     capture_template_name: str = "capture.png"
     pollute_capture_template_name: str = "pollute_capture.png"
+    battle_end_template_names: tuple = ("elf_P.png", "missions.png", "heaths.png", "map.png")
+
+    # Teammate reconnect detection (non-battle state).
+    reconnect_template_name: str = "qiudaidai.png"
+    reconnect_accept_key: str = "f"
+    reconnect_center_roi: tuple = (0.15, 0.15, 0.7, 0.7)  # (left, top, width, height)
 
     # Runtime controls.
 
