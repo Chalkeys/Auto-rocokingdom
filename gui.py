@@ -54,6 +54,7 @@ class OverlayWindow(tk.Toplevel):
         body = tk.Frame(self, bg=self._BG, padx=12, pady=6)
         body.pack(fill="x")
 
+        self._pollute_label: tk.Label | None = None
         for label_text, var in (
             ("模式", mode_var),
             ("状态", state_var),
@@ -64,8 +65,11 @@ class OverlayWindow(tk.Toplevel):
             row.pack(fill="x", pady=2)
             tk.Label(row, text=label_text, bg=self._BG, fg="#888",
                      font=("", 9), width=4, anchor="w").pack(side="left")
-            tk.Label(row, textvariable=var, bg=self._BG, fg=self._ACCENT,
-                     font=("", 11, "bold"), anchor="w").pack(side="left")
+            value_label = tk.Label(row, textvariable=var, bg=self._BG, fg=self._ACCENT,
+                                   font=("", 11, "bold"), anchor="w")
+            value_label.pack(side="left")
+            if label_text == "污染":
+                self._pollute_label = value_label
 
         # ── 透明度滑块 ──────────────────────────────────────────────────
         tk.Frame(self, bg="#2a2a4a", height=1).pack(fill="x")
@@ -88,6 +92,10 @@ class OverlayWindow(tk.Toplevel):
 
     def _on_alpha(self, _=None) -> None:
         self.wm_attributes("-alpha", self._alpha_var.get() / 100)
+
+    def set_pollute_color(self, color: str) -> None:
+        if self._pollute_label is not None:
+            self._pollute_label.config(fg=color or self._ACCENT)
 
     def _bind_drag(self, widget: tk.Widget) -> None:
         if isinstance(widget, (tk.Scale, tk.Button)):
@@ -201,6 +209,7 @@ class App(tk.Tk):
         self._state_var = tk.StringVar(value="待机")
         self._score_var = tk.StringVar(value="—")
 
+        self._pollute_label: ttk.Label | None = None
         for label, var in (
             ("战斗次数", self._battle_var),
             ("污染次数", self._pollute_var),
@@ -210,7 +219,11 @@ class App(tk.Tk):
             row = ttk.Frame(status_frame)
             row.pack(fill="x", pady=1)
             ttk.Label(row, text=label + "：", width=9, anchor="w").pack(side="left")
-            ttk.Label(row, textvariable=var, anchor="w").pack(side="left")
+            value_lbl = ttk.Label(row, textvariable=var, anchor="w")
+            value_lbl.pack(side="left")
+            if label == "污染次数":
+                self._pollute_label = value_lbl
+                self._pollute_default_fg = value_lbl.cget("foreground")
 
         # Start / stop + overlay toggle
         btn_frame = ttk.Frame(self, padding=(12, 4))
@@ -357,12 +370,25 @@ class App(tk.Tk):
         if "battle_count" in data:
             self._battle_var.set(str(data["battle_count"]))
         if "pollute_count" in data:
-            self._pollute_var.set(str(data["pollute_count"]))
+            self._update_pollute_display(int(data["pollute_count"]))
         if "state" in data:
             self._state_var.set(data["state"])
         if "score" in data:
             val = data["score"]
             self._score_var.set(f"{val:.3f}" if isinstance(val, float) else "—")
+
+    def _update_pollute_display(self, count: int) -> None:
+        if count >= 80:
+            text, color = f"{count}（保底）", "#f44336"
+        elif count >= 70:
+            text, color = f"{count}（软保底）", "#ff9800"
+        else:
+            text, color = str(count), self._pollute_default_fg
+        self._pollute_var.set(text)
+        if self._pollute_label is not None:
+            self._pollute_label.config(foreground=color)
+        if self._overlay is not None and self._overlay.winfo_exists():
+            self._overlay.set_pollute_color(color if count >= 70 else "")
 
 
 def _ensure_admin() -> None:
