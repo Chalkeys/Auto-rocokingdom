@@ -14,6 +14,7 @@ from core.engine import Engine
 from core.logger import setup_logging
 from core.window import find_all_windows_by_keyword
 from modes import MODE_REGISTRY
+from modes.smart import ACTION_OPTIONS, SmartMode
 
 
 class _QueueLogHandler(logging.Handler):
@@ -64,13 +65,34 @@ class App(tk.Tk):
         mode_frame.pack(fill="x", **pad)
 
         self._mode_var = tk.StringVar(value="1")
+        # Build action key/label lists from ACTION_OPTIONS (preserves dict order)
+        self._smart_action_keys = [v[0] for v in ACTION_OPTIONS.values()]
+        _action_labels = [v[1] for v in ACTION_OPTIONS.values()]
+
         for key, cls in sorted(MODE_REGISTRY.items()):
             ttk.Radiobutton(
                 mode_frame,
                 text=f"{key}：{cls().label}",
                 variable=self._mode_var,
                 value=key,
+                command=self._on_mode_change,
             ).pack(anchor="w", pady=2)
+            if key == "4":
+                # Smart mode config sub-section
+                self._smart_frame = ttk.Frame(mode_frame)
+                self._smart_frame.pack(fill="x", padx=(22, 0), pady=(0, 4))
+                for row_text, default_key, combo_attr in (
+                    ("污染战斗", "gather", "_smart_pollute_combo"),
+                    ("普通战斗", "escape", "_smart_normal_combo"),
+                ):
+                    row = ttk.Frame(self._smart_frame)
+                    row.pack(fill="x", pady=1)
+                    ttk.Label(row, text=row_text + "：", width=8, anchor="w").pack(side="left")
+                    combo = ttk.Combobox(row, values=_action_labels, state="disabled", width=28)
+                    combo.current(self._smart_action_keys.index(default_key))
+                    combo.pack(side="left")
+                    setattr(self, combo_attr, combo)
+        self._on_mode_change()
 
         # Window picker
         win_frame = ttk.LabelFrame(self, text="目标窗口", padding=8)
@@ -129,6 +151,11 @@ class App(tk.Tk):
             font=("", 8),
         ).pack(pady=(0, 6))
 
+    def _on_mode_change(self) -> None:
+        state = "readonly" if self._mode_var.get() == "4" else "disabled"
+        self._smart_pollute_combo.config(state=state)
+        self._smart_normal_combo.config(state=state)
+
     # ---------------------------------------------------------------- control
 
     def _refresh_windows(self) -> None:
@@ -149,7 +176,12 @@ class App(tk.Tk):
     def _do_start(self) -> None:
         self._stop_event.clear()
         key = self._mode_var.get()
-        mode = MODE_REGISTRY[key]()
+        if key == "4":
+            pollute = self._smart_action_keys[self._smart_pollute_combo.current()]
+            normal = self._smart_action_keys[self._smart_normal_combo.current()]
+            mode = SmartMode(pollute_action=pollute, normal_action=normal)
+        else:
+            mode = MODE_REGISTRY[key]()
         idx = self._win_combo.current()
         target_hwnd = self._hwnd_list[idx] if 0 <= idx < len(self._hwnd_list) else None
         engine = Engine(
@@ -180,6 +212,12 @@ class App(tk.Tk):
             elif child.cget("text") == "目标窗口":
                 for w in child.winfo_children():
                     w.config(state=state if state == "disabled" else ("readonly" if isinstance(w, ttk.Combobox) else state))
+        # Smart mode comboboxes: restore to readonly only when mode 4 is selected
+        if state == "disabled":
+            self._smart_pollute_combo.config(state="disabled")
+            self._smart_normal_combo.config(state="disabled")
+        else:
+            self._on_mode_change()
 
     def _on_close(self) -> None:
         self._stop_event.set()
