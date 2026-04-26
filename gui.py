@@ -81,8 +81,9 @@ class OverlayWindow(tk.Toplevel):
             highlightthickness=0, bd=0, length=120, showvalue=False,
         ).pack(side="left")
 
-        # 绑定拖动（排除滑块和按钮）
-        self._bind_drag(self)
+        # 仅在标题栏和数据区绑定拖动（避开透明度滑块所在的 alpha_row）
+        self._bind_drag(bar)
+        self._bind_drag(body)
         self.geometry("+40+40")
 
     def _on_alpha(self, _=None) -> None:
