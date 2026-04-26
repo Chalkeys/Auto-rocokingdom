@@ -28,6 +28,8 @@ from modes.base import BaseMode, BattleEvent
 
 _SEP = "══════════════════════════════════════════════════════════"
 
+_NO_WINDOW_TIMEOUT = 20  # consecutive ticks without a window before giving up
+
 # Map each battle-end template to its ROI region (left_ratio, top_ratio, w_ratio, h_ratio)
 _BATTLE_END_ROI = {
     "elf_p.png": (0.5, 0.0, 0.5, 0.5),
@@ -52,11 +54,15 @@ class Engine:
         stop_event: Optional[threading.Event] = None,
         status_callback: Optional[Callable[[Dict], None]] = None,
         target_hwnd: Optional[int] = None,
+        initial_battle_count: int = 0,
+        initial_pollute_count: int = 0,
     ) -> None:
         self._mode = mode
         self._stop_event = stop_event if stop_event is not None else threading.Event()
         self._status_callback = status_callback
         self._target_hwnd = target_hwnd
+        self._initial_battle_count = initial_battle_count
+        self._initial_pollute_count = initial_pollute_count
 
     def _push_status(self, **kwargs: object) -> None:
         if self._status_callback is not None:
@@ -98,8 +104,9 @@ class Engine:
 
         in_battle = False
         last_trigger_time = 0.0
-        battle_count = 0
-        pollute_count = 0
+        battle_count = self._initial_battle_count
+        pollute_count = self._initial_pollute_count
+        consecutive_no_window = 0
 
         try:
             import win32gui as _win32gui
@@ -113,10 +120,19 @@ class Engine:
                 else:
                     hwnd = find_window_by_keyword(CONFIG.window_title_keyword)
                 if hwnd is None:
-                    logging.warning("未找到游戏窗口: %s", CONFIG.window_title_keyword)
-                    self._push_status(state="未找到游戏窗口")
+                    consecutive_no_window += 1
+                    if consecutive_no_window >= _NO_WINDOW_TIMEOUT:
+                        logging.warning("连续 %d 次未找到游戏窗口，停止运行", _NO_WINDOW_TIMEOUT)
+                        self._push_status(state="窗口已丢失", window_lost=True)
+                        break
+                    logging.warning(
+                        "未找到游戏窗口: %s（%d/%d）",
+                        CONFIG.window_title_keyword, consecutive_no_window, _NO_WINDOW_TIMEOUT,
+                    )
+                    self._push_status(state=f"未找到游戏窗口（{consecutive_no_window}/{_NO_WINDOW_TIMEOUT}）")
                     time.sleep(interval)
                     continue
+                consecutive_no_window = 0
 
                 left, top, width, height = get_client_rect_on_screen(hwnd)
                 if width <= 0 or height <= 0:

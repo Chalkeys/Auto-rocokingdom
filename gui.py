@@ -7,7 +7,7 @@ import queue
 import sys
 import threading
 import tkinter as tk
-from tkinter import scrolledtext, ttk
+from tkinter import messagebox, scrolledtext, ttk
 
 from config import CONFIG
 from core.engine import Engine
@@ -137,6 +137,9 @@ class App(tk.Tk):
         self._hwnd_list: list[int | None] = [None]
         self._overlay: OverlayWindow | None = None
         self._running_mode_var = tk.StringVar(value="—")
+        self._saved_battle_count = 0
+        self._saved_pollute_count = 0
+        self._window_lost = False
 
         setup_logging()
         self._install_log_handler()
@@ -291,6 +294,7 @@ class App(tk.Tk):
             self._do_start()
 
     def _do_start(self) -> None:
+        self._window_lost = False
         self._stop_event.clear()
         key = self._mode_var.get()
         if key == "4":
@@ -299,6 +303,23 @@ class App(tk.Tk):
             mode = SmartMode(pollute_action=pollute, normal_action=normal)
         else:
             mode = MODE_REGISTRY[key]()
+
+        # Offer to inherit or reset previous session stats
+        if self._saved_battle_count > 0 or self._saved_pollute_count > 0:
+            inherit = messagebox.askyesno(
+                "继承统计",
+                f"上次运行：战斗 {self._saved_battle_count} 次，污染 {self._saved_pollute_count} 次\n"
+                "是否继承统计数据？",
+            )
+            if not inherit:
+                self._saved_battle_count = 0
+                self._saved_pollute_count = 0
+                self._battle_var.set("0")
+                self._update_pollute_display(0)
+
+        initial_battle = self._saved_battle_count
+        initial_pollute = self._saved_pollute_count
+
         idx = self._win_combo.current()
         target_hwnd = self._hwnd_list[idx] if 0 <= idx < len(self._hwnd_list) else None
         engine = Engine(
@@ -306,6 +327,8 @@ class App(tk.Tk):
             stop_event=self._stop_event,
             status_callback=lambda s: self._msg_queue.put(("status", s)),
             target_hwnd=target_hwnd,
+            initial_battle_count=initial_battle,
+            initial_pollute_count=initial_pollute,
         )
         self._engine_thread = threading.Thread(target=engine.run, daemon=True)
         self._engine_thread.start()
@@ -357,7 +380,15 @@ class App(tk.Tk):
         # Auto-reset button if engine thread ended on its own
         if self._engine_thread and not self._engine_thread.is_alive():
             if not self._stop_event.is_set():
+                was_window_lost = self._window_lost
                 self._do_stop()
+                if was_window_lost:
+                    self._window_lost = False
+                    if messagebox.askyesno(
+                        "窗口已丢失",
+                        "游戏窗口已失去连接。\n是否刷新窗口列表并重新选择？",
+                    ):
+                        self._refresh_windows()
         self.after(100, self._poll)
 
     def _append_log(self, text: str) -> None:
@@ -368,14 +399,18 @@ class App(tk.Tk):
 
     def _update_status(self, data: dict) -> None:
         if "battle_count" in data:
-            self._battle_var.set(str(data["battle_count"]))
+            self._saved_battle_count = int(data["battle_count"])
+            self._battle_var.set(str(self._saved_battle_count))
         if "pollute_count" in data:
-            self._update_pollute_display(int(data["pollute_count"]))
+            self._saved_pollute_count = int(data["pollute_count"])
+            self._update_pollute_display(self._saved_pollute_count)
         if "state" in data:
             self._state_var.set(data["state"])
         if "score" in data:
             val = data["score"]
             self._score_var.set(f"{val:.3f}" if isinstance(val, float) else "—")
+        if data.get("window_lost"):
+            self._window_lost = True
 
     def _update_pollute_display(self, count: int) -> None:
         if count >= 80:
