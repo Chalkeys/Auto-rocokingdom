@@ -17,6 +17,93 @@ from modes import MODE_REGISTRY
 from modes.smart import ACTION_OPTIONS, SmartMode
 
 
+class OverlayWindow(tk.Toplevel):
+    """始终置顶的半透明悬浮状态窗口，可拖动、可调透明度。"""
+
+    _BG = "#1a1a2e"
+    _FG = "#e0e0e0"
+    _ACCENT = "#4fc3f7"
+    _BAR_BG = "#0d0d1a"
+
+    def __init__(
+        self,
+        parent: tk.Tk,
+        mode_var: tk.StringVar,
+        state_var: tk.StringVar,
+        battle_var: tk.StringVar,
+        pollute_var: tk.StringVar,
+    ) -> None:
+        super().__init__(parent)
+        self.overrideredirect(True)
+        self.wm_attributes("-topmost", True)
+        self.wm_attributes("-alpha", 0.85)
+        self.config(bg=self._BG)
+        self._dx = self._dy = 0
+
+        # ── 标题栏（拖动区 + 关闭按钮）──────────────────────────────────
+        bar = tk.Frame(self, bg=self._BAR_BG, cursor="fleur")
+        bar.pack(fill="x")
+        tk.Label(bar, text="Auto-Roco  HUD", bg=self._BAR_BG, fg="#666",
+                 font=("", 8), padx=6, pady=3).pack(side="left")
+        tk.Button(bar, text="×", bg=self._BAR_BG, fg="#ff6b6b", bd=0,
+                  font=("", 10, "bold"), cursor="hand2",
+                  activebackground=self._BAR_BG, activeforeground="#ff4444",
+                  command=self.destroy).pack(side="right", padx=4)
+
+        # ── 数据行 ──────────────────────────────────────────────────────
+        body = tk.Frame(self, bg=self._BG, padx=12, pady=6)
+        body.pack(fill="x")
+
+        for label_text, var in (
+            ("模式", mode_var),
+            ("状态", state_var),
+            ("战斗", battle_var),
+            ("污染", pollute_var),
+        ):
+            row = tk.Frame(body, bg=self._BG)
+            row.pack(fill="x", pady=2)
+            tk.Label(row, text=label_text, bg=self._BG, fg="#888",
+                     font=("", 9), width=4, anchor="w").pack(side="left")
+            tk.Label(row, textvariable=var, bg=self._BG, fg=self._ACCENT,
+                     font=("", 11, "bold"), anchor="w").pack(side="left")
+
+        # ── 透明度滑块 ──────────────────────────────────────────────────
+        tk.Frame(self, bg="#2a2a4a", height=1).pack(fill="x")
+        alpha_row = tk.Frame(self, bg=self._BG, padx=12, pady=4)
+        alpha_row.pack(fill="x")
+        tk.Label(alpha_row, text="透明", bg=self._BG, fg="#888",
+                 font=("", 9), width=4, anchor="w").pack(side="left")
+        self._alpha_var = tk.IntVar(value=85)
+        tk.Scale(
+            alpha_row, from_=20, to=100, orient="horizontal",
+            variable=self._alpha_var, command=self._on_alpha,
+            bg=self._BG, fg=self._FG, troughcolor="#2a2a4a",
+            highlightthickness=0, bd=0, length=120, showvalue=False,
+        ).pack(side="left")
+
+        # 绑定拖动（排除滑块和按钮）
+        self._bind_drag(self)
+        self.geometry("+40+40")
+
+    def _on_alpha(self, _=None) -> None:
+        self.wm_attributes("-alpha", self._alpha_var.get() / 100)
+
+    def _bind_drag(self, widget: tk.Widget) -> None:
+        if isinstance(widget, (tk.Scale, tk.Button)):
+            return
+        widget.bind("<ButtonPress-1>", self._drag_start)
+        widget.bind("<B1-Motion>", self._drag_move)
+        for child in widget.winfo_children():
+            self._bind_drag(child)
+
+    def _drag_start(self, event: tk.Event) -> None:
+        self._dx = event.x_root - self.winfo_x()
+        self._dy = event.y_root - self.winfo_y()
+
+    def _drag_move(self, event: tk.Event) -> None:
+        self.geometry(f"+{event.x_root - self._dx}+{event.y_root - self._dy}")
+
+
 class _QueueLogHandler(logging.Handler):
     def __init__(self, q: queue.Queue) -> None:
         super().__init__()
@@ -38,8 +125,9 @@ class App(tk.Tk):
         self._stop_event = threading.Event()
         self._msg_queue: queue.Queue = queue.Queue()
         self._engine_thread: threading.Thread | None = None
-        # hwnd list parallel to combobox values; index 0 = auto (None)
         self._hwnd_list: list[int | None] = [None]
+        self._overlay: OverlayWindow | None = None
+        self._running_mode_var = tk.StringVar(value="—")
 
         setup_logging()
         self._install_log_handler()
@@ -123,11 +211,13 @@ class App(tk.Tk):
             ttk.Label(row, text=label + "：", width=9, anchor="w").pack(side="left")
             ttk.Label(row, textvariable=var, anchor="w").pack(side="left")
 
-        # Start / stop button
+        # Start / stop + overlay toggle
         btn_frame = ttk.Frame(self, padding=(12, 4))
         btn_frame.pack(fill="x")
         self._btn = ttk.Button(btn_frame, text="开始运行", command=self._toggle, width=22)
-        self._btn.pack(expand=True)
+        self._btn.pack(side="left", expand=True)
+        self._overlay_btn = ttk.Button(btn_frame, text="悬浮窗", command=self._toggle_overlay, width=8)
+        self._overlay_btn.pack(side="left", padx=(6, 0))
 
         # Log area
         log_frame = ttk.LabelFrame(self, text="运行日志", padding=6)
@@ -150,6 +240,19 @@ class App(tk.Tk):
             foreground="gray",
             font=("", 8),
         ).pack(pady=(0, 6))
+
+    def _toggle_overlay(self) -> None:
+        if self._overlay and self._overlay.winfo_exists():
+            self._overlay.destroy()
+            self._overlay = None
+        else:
+            self._overlay = OverlayWindow(
+                self,
+                mode_var=self._running_mode_var,
+                state_var=self._state_var,
+                battle_var=self._battle_var,
+                pollute_var=self._pollute_var,
+            )
 
     def _on_mode_change(self) -> None:
         state = "readonly" if self._mode_var.get() == "4" else "disabled"
@@ -194,12 +297,14 @@ class App(tk.Tk):
         self._engine_thread.start()
         self._btn.config(text="停止运行")
         self._state_var.set("运行中…")
+        self._running_mode_var.set(mode.label)
         self._set_controls_state("disabled")
 
     def _do_stop(self) -> None:
         self._stop_event.set()
         self._btn.config(text="开始运行")
         self._state_var.set("已停止")
+        self._running_mode_var.set("—")
         self._set_controls_state("normal")
 
     def _set_controls_state(self, state: str) -> None:
