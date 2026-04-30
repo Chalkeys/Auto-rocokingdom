@@ -104,6 +104,7 @@ class Engine:
         battle_count = self._initial_battle_count
         pollute_count = self._initial_pollute_count
         consecutive_no_window = 0
+        last_spirit_name = ""
 
         try:
             import win32gui as _win32gui
@@ -195,6 +196,7 @@ class Engine:
                     if is_pollute_battle:
                         pollute_count += 1
                         spirit_name = recognize_spirit_name(full_window_bgr, width, height)
+                        last_spirit_name = spirit_name
                         log_pollute_battle(pollute_count, spirit_name)
 
                     logging.info(_SEP)
@@ -271,6 +273,7 @@ class Engine:
                     pollute_count=pollute_count,
                     state="战斗中" if in_battle else "待机",
                     score=action_score,
+                    spirit_name=last_spirit_name,
                 )
 
                 jitter = random.uniform(-interval * 0.15, interval * 0.15)

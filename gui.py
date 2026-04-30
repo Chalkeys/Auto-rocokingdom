@@ -32,6 +32,7 @@ class OverlayWindow(tk.Toplevel):
         state_var: tk.StringVar,
         battle_var: tk.StringVar,
         pollute_var: tk.StringVar,
+        spirit_var: tk.StringVar,
     ) -> None:
         super().__init__(parent)
         self.overrideredirect(True)
@@ -60,6 +61,7 @@ class OverlayWindow(tk.Toplevel):
             ("状态", state_var),
             ("战斗", battle_var),
             ("污染", pollute_var),
+            ("精灵", spirit_var),
         ):
             row = tk.Frame(body, bg=self._BG)
             row.pack(fill="x", pady=2)
@@ -140,6 +142,7 @@ class App(tk.Tk):
         self._saved_battle_count = 0
         self._saved_pollute_count = 0
         self._window_lost = False
+        self._spirit_var = tk.StringVar(value="—")
 
         setup_logging()
         self._install_log_handler()
@@ -218,6 +221,7 @@ class App(tk.Tk):
             ("污染次数", self._pollute_var),
             ("当前状态", self._state_var),
             ("检测分数", self._score_var),
+            ("最近精灵", self._spirit_var),
         ):
             row = ttk.Frame(status_frame)
             row.pack(fill="x", pady=1)
@@ -269,6 +273,7 @@ class App(tk.Tk):
                 state_var=self._state_var,
                 battle_var=self._battle_var,
                 pollute_var=self._pollute_var,
+                spirit_var=self._spirit_var,
             )
 
     def _on_mode_change(self) -> None:
@@ -342,6 +347,7 @@ class App(tk.Tk):
         self._btn.config(text="开始运行")
         self._state_var.set("已停止")
         self._running_mode_var.set("—")
+        self._spirit_var.set("—")
         self._set_controls_state("normal")
 
     def _set_controls_state(self, state: str) -> None:
@@ -409,6 +415,8 @@ class App(tk.Tk):
         if "score" in data:
             val = data["score"]
             self._score_var.set(f"{val:.3f}" if isinstance(val, float) else "—")
+        if "spirit_name" in data and data["spirit_name"]:
+            self._spirit_var.set(data["spirit_name"])
         if data.get("window_lost"):
             self._window_lost = True
 

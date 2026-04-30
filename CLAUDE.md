@@ -36,6 +36,13 @@ Before every git commit:
 2. Review `.gitignore` and add any new files or directories that should not be tracked (e.g., newly generated files, IDE configs, sensitive data).
 3. Changelog entries: put functional changes (new features, bug fixes) first; structural/refactor changes are secondary.
 
+## GUI Sync Rule
+
+Whenever upstream changes are merged or new engine/core features are added, **always update `gui.py` in the same commit**:
+- Any new data the engine produces (e.g., spirit name, CSV path, reconnect count) must appear in the status panel and, if relevant, the overlay window (`OverlayWindow`).
+- New engine `_push_status` keys must be handled in `App._update_status`.
+- New config tunables that users may want to adjust at runtime should get a corresponding control in the GUI.
+
 ## Key Conventions
 
 - All user-facing strings and log messages are in Chinese
