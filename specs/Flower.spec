@@ -1,12 +1,12 @@
-# PyInstaller spec for Auto-Roco 启动器
-# Build: uv run pyinstaller Launcher.spec
-# Output: dist/Launcher.exe
+# PyInstaller spec for Flower 刷花助手
+# Build: uv run pyinstaller specs/Flower.spec  (from project root)
+# Output: dist/Flower.exe
 
 block_cipher = None
 
 a = Analysis(
-    ["launcher.py"],
-    pathex=["."],
+    ["app/flower.py"],
+    pathex=[".", "app"],
     binaries=[],
     datas=[],
     hiddenimports=[
@@ -34,7 +34,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="Launcher",
+    name="Flower",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

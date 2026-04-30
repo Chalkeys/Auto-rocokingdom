@@ -1,12 +1,12 @@
 # PyInstaller spec for AutoRoco GUI
-# Build: uv run pyinstaller AutoRoco.spec
+# Build: uv run pyinstaller specs/AutoRoco.spec  (from project root)
 # Output: dist/AutoRoco.exe
 
 block_cipher = None
 
 a = Analysis(
-    ["gui.py"],
-    pathex=["."],
+    ["app/gui.py"],
+    pathex=[".", "app"],
     binaries=[],
     datas=[
         ("templates", "templates"),
