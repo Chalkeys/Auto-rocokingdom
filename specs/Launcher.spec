@@ -2,11 +2,13 @@
 # Build: uv run pyinstaller specs/Launcher.spec  (from project root)
 # Output: dist/Launcher.exe
 
+import os
 block_cipher = None
+ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
 a = Analysis(
-    ["launcher.py"],
-    pathex=[".", "app"],
+    [os.path.join(ROOT, "launcher.py")],
+    pathex=[ROOT, os.path.join(ROOT, "app")],
     binaries=[],
     datas=[],
     hiddenimports=[

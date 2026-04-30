@@ -2,11 +2,13 @@
 # Build: uv run pyinstaller specs/Flower.spec  (from project root)
 # Output: dist/Flower.exe
 
+import os
 block_cipher = None
+ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
 a = Analysis(
-    ["app/flower.py"],
-    pathex=[".", "app"],
+    [os.path.join(ROOT, "app", "flower.py")],
+    pathex=[ROOT, os.path.join(ROOT, "app")],
     binaries=[],
     datas=[],
     hiddenimports=[
