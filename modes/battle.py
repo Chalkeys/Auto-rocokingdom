@@ -19,5 +19,5 @@ class BattleMode(BaseMode):
         if not is_hit:
             return None
         press_once(event.hwnd, CONFIG.press_key)
-        logging.info("已触发按键: %s（连续模式）", CONFIG.press_key)
+        logging.info("已触发按键: %s（聚能模式）", CONFIG.press_key)
         return None

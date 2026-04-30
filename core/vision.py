@@ -1,8 +1,7 @@
 import glob
-import logging
 import os
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -22,22 +21,17 @@ def normalize_template_name(name: str) -> str:
 
 def normalize_poll_interval(interval: float) -> float:
     if interval <= 0:
-        logging.warning("轮询间隔 poll_interval_sec <= 0，已回退到 5.0")
         return 5.0
     if interval > 5.0:
-        logging.warning("轮询间隔 poll_interval_sec > 5.0，已钳制到 5.0")
         return 5.0
     return interval
 
 
 def preprocess(image_bgr: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-
     if CONFIG.use_edge_match:
         return cv2.Canny(gray, 100, 200)
-
-    gray = cv2.GaussianBlur(gray, (3, 3), 0)
-    return gray
+    return cv2.GaussianBlur(gray, (3, 3), 0)
 
 
 def load_templates() -> List[Template]:
@@ -48,20 +42,18 @@ def load_templates() -> List[Template]:
     for path in paths:
         raw = cv2.imread(path)
         if raw is None:
-            logging.warning("跳过无法读取的模板: %s", path)
             continue
-        if "yes" in path.lower():
+        name = os.path.basename(path)
+        if "yes" in name.lower() or "qiudaidai" in name.lower():
             processed = cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY)
         else:
             processed = preprocess(raw)
-        templates.append(Template(name=os.path.basename(path), image=processed))
+        templates.append(Template(name=name, image=processed))
 
     if not templates:
         raise FileNotFoundError(
             "No template images found. Put PNG files into templates/ first."
         )
-
-    logging.info("已加载模板数量: %d", len(templates))
     return templates
 
 
@@ -82,20 +74,18 @@ def best_match_score(
             new_w = max(1, int(tpl_img.shape[1] * scale))
             new_h = max(1, int(tpl_img.shape[0] * scale))
             tpl_img = cv2.resize(tpl_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
         th, tw = tpl_img.shape[:2]
         if th > fh or tw > fw:
             continue
         result = cv2.matchTemplate(frame_processed, tpl_img, cv2.TM_CCOEFF_NORMED)
-        _min_val, max_val, _min_loc, max_loc = cv2.minMaxLoc(result)
-
+        _, max_val, _, max_loc = cv2.minMaxLoc(result)
         current_score = float(max_val)
         all_scores.append((tpl.name, current_score))
-
         if current_score > best_score:
             best_score = current_score
             best_name = tpl.name
             best_loc = (max_loc[0] + tw // 2, max_loc[1] + th // 2)
+
     return best_score, best_name, best_loc, all_scores
 
 
@@ -105,7 +95,6 @@ def match_single(
     target_name: str,
     scale: float = 1.0,
 ) -> float:
-    """Match a single template by normalized name, return its best score."""
     target_key = normalize_template_name(target_name)
     fh, fw = frame_processed.shape[:2]
 
@@ -148,16 +137,13 @@ def best_yes_score_and_loc(
                 (max(1, int(t_img.shape[1] * scale)), max(1, int(t_img.shape[0] * scale))),
                 interpolation=cv2.INTER_AREA,
             )
-
         th, tw = t_img.shape[:2]
         if th > fh or tw > fw:
             continue
-
         res_edge = cv2.matchTemplate(frame_edge, t_img, cv2.TM_CCOEFF_NORMED)
         res_gray = cv2.matchTemplate(frame_gray, t_img, cv2.TM_CCOEFF_NORMED)
         _, max_v_edge, _, max_l_edge = cv2.minMaxLoc(res_edge)
         _, max_v_gray, _, max_l_gray = cv2.minMaxLoc(res_gray)
-
         cur_v, cur_l = (max_v_edge, max_l_edge) if max_v_edge > max_v_gray else (max_v_gray, max_l_gray)
         if cur_v > best_score:
             best_score = float(cur_v)
