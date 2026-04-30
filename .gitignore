@@ -26,6 +26,7 @@ env/
 
 run.bat
 template_debug/
+updates/
 
 # PyInstaller build artifacts
 build/
