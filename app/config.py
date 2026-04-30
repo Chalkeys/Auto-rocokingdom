@@ -2,12 +2,23 @@ import os
 import sys
 from dataclasses import dataclass
 
+# app/ directory and the project root (one level up)
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_APP_DIR)
+
 
 def resource_path(relative: str) -> str:
-    """Resolve a path that works both in development and in a PyInstaller bundle."""
+    """Read-only bundled assets (e.g. templates/). In frozen mode uses _MEIPASS."""
     if hasattr(sys, "_MEIPASS"):
         return os.path.join(sys._MEIPASS, relative)
-    return relative
+    return os.path.join(_ROOT, relative)
+
+
+def runtime_path(relative: str) -> str:
+    """Writable runtime files (e.g. logs/). Sibling of the EXE in frozen mode."""
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(os.path.dirname(sys.executable), relative)
+    return os.path.join(_ROOT, relative)
 
 
 @dataclass(frozen=True)

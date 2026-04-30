@@ -9,11 +9,17 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-import updater
-from version import __version__
-
 _FROZEN = getattr(sys, "frozen", False)
 _BASE = os.path.dirname(sys.executable if _FROZEN else os.path.abspath(__file__))
+
+# In source mode add app/ to sys.path so `import updater` finds app/updater.py
+if not _FROZEN:
+    _app_dir = os.path.join(_BASE, "app")
+    if _app_dir not in sys.path:
+        sys.path.insert(0, _app_dir)
+
+import updater
+from version import __version__
 
 
 def _find_cmd(exe_name: str, script_name: str) -> list[str]:
@@ -24,8 +30,10 @@ def _find_cmd(exe_name: str, script_name: str) -> list[str]:
             if os.path.exists(p):
                 return [p]
         return []
+    # Source mode: scripts live in app/
+    app_dir = os.path.join(_BASE, "app")
     for candidate in [script_name, script_name.lower(), exe_name.lower()]:
-        p = os.path.join(_BASE, f"{candidate}.py")
+        p = os.path.join(app_dir, f"{candidate}.py")
         if os.path.exists(p):
             return [sys.executable, p]
     return []
