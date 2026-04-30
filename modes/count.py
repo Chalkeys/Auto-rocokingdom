@@ -1,4 +1,3 @@
-import logging
 from typing import Optional
 
 from modes.base import BaseMode, BattleEvent
@@ -15,6 +14,3 @@ class CountMode(BaseMode):
 
     def on_action(self, event: BattleEvent, is_hit: bool, action_score: float) -> Optional[float]:
         return None
-
-    def on_tick_display(self, event: BattleEvent, is_hit: bool, action_score: float, action_template: str) -> None:
-        logging.info("污染次数=%d", event.pollute_count)

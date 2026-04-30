@@ -1,4 +1,5 @@
 import logging
+import random
 import threading
 import time
 from typing import Callable, Dict, List, Optional, Tuple
@@ -8,7 +9,8 @@ import mss
 from config import CONFIG
 from core.capture import capture_window_bgr
 from core.input import press_once
-from core.logger import log_audit
+from core.ocr import recognize_spirit_name
+from core.pollute_logger import log_mode_start, log_pollute_battle
 from core.vision import (
     Template,
     best_match_score,
@@ -19,8 +21,12 @@ from core.vision import (
     match_single,
 )
 
-# Templates excluded from action detection scoring
-_ACTION_SPECIAL_KEYS = {"yes.png", "qiudaidai.png"}
+_ACTION_EXCLUDE_KEYS = {
+    "yes.png",
+    "qiudaidai.png",
+    "capture.png",
+    "pollute_capture.png",
+}
 
 from core.window import find_window_by_keyword, get_client_rect_on_screen, find_all_windows_by_keyword
 from modes.base import BaseMode, BattleEvent
@@ -28,13 +34,11 @@ from modes.base import BaseMode, BattleEvent
 
 _SEP = "══════════════════════════════════════════════════════════"
 
-_NO_WINDOW_TIMEOUT = 20  # consecutive ticks without a window before giving up
+_NO_WINDOW_TIMEOUT = 20
 
-# Map each battle-end template to its ROI region (left_ratio, top_ratio, w_ratio, h_ratio)
 _BATTLE_END_ROI = {
     "elf_p.png": (0.5, 0.0, 0.5, 0.5),
     "missions.png": (0.5, 0.0, 0.5, 0.5),
-    "heaths.png": (0.0, 0.0, 0.5, 0.5),
     "map.png": (0.5, 0.0, 0.5, 0.5),
 }
 
@@ -69,8 +73,8 @@ class Engine:
             self._status_callback(kwargs)
 
     def run(self) -> None:
-        logging.info("检测器已启动，按 Ctrl+C 退出。")
-        logging.info("本脚本仅用于授权测试。")
+        logging.info("检测器已启动（模式: %s）", self._mode.label)
+        log_mode_start(self._mode.label)
 
         templates = load_templates()
         interval = normalize_poll_interval(CONFIG.poll_interval_sec)
@@ -79,7 +83,6 @@ class Engine:
         reconnect_template_key = normalize_template_name(CONFIG.reconnect_template_name)
         loaded_template_keys = {normalize_template_name(t.name) for t in templates}
 
-        # Normalize battle-end template names
         battle_end_keys = {}
         for raw_name in CONFIG.battle_end_template_names:
             key = normalize_template_name(raw_name)
@@ -92,15 +95,9 @@ class Engine:
 
         if self._mode.name == "smart":
             if capture_template_key not in loaded_template_keys:
-                logging.warning(
-                    "智能模式缺少普通战斗模板: 配置=%s",
-                    CONFIG.capture_template_name,
-                )
+                logging.warning("智能模式缺少普通战斗模板: 配置=%s", CONFIG.capture_template_name)
             if pollute_capture_template_key not in loaded_template_keys:
-                logging.warning(
-                    "智能模式缺少污染战斗模板: 配置=%s",
-                    CONFIG.pollute_capture_template_name,
-                )
+                logging.warning("智能模式缺少污染战斗模板: 配置=%s", CONFIG.pollute_capture_template_name)
 
         in_battle = False
         last_trigger_time = 0.0
@@ -146,48 +143,38 @@ class Engine:
 
                 full_window_bgr = capture_window_bgr(hwnd)
 
-                roi_left = int(width * CONFIG.roi_left_ratio)
-                roi_top = int(height * CONFIG.roi_top_ratio)
-                roi_w = int(width * CONFIG.roi_width_ratio)
-                roi_h = int(height * CONFIG.roi_height_ratio)
-
-                roi_left = max(0, min(width - 1, roi_left))
-                roi_top = max(0, min(height - 1, roi_top))
-                roi_w = max(1, min(width - roi_left, roi_w))
-                roi_h = max(1, min(height - roi_top, roi_h))
+                roi_left = max(0, min(width - 1, int(width * CONFIG.roi_left_ratio)))
+                roi_top = max(0, min(height - 1, int(height * CONFIG.roi_top_ratio)))
+                roi_w = max(1, min(width - roi_left, int(width * CONFIG.roi_width_ratio)))
+                roi_h = max(1, min(height - roi_top, int(height * CONFIG.roi_height_ratio)))
 
                 frame_bgr = full_window_bgr[roi_top:roi_top + roi_h, roi_left:roi_left + roi_w]
                 frame_processed = preprocess(frame_bgr)
 
                 score, name, center_loc, all_matches = best_match_score(frame_processed, templates, scale=scale)
 
-                # Extract per-template scores from main ROI
                 capture_score = next(
-                    (s for n, s in all_matches if normalize_template_name(n) == capture_template_key),
-                    0.0,
+                    (s for n, s in all_matches if normalize_template_name(n) == capture_template_key), 0.0,
                 )
                 pollute_capture_score = next(
-                    (s for n, s in all_matches if normalize_template_name(n) == pollute_capture_template_key),
-                    0.0,
+                    (s for n, s in all_matches if normalize_template_name(n) == pollute_capture_template_key), 0.0,
                 )
 
-                # ── Battle-end detection across multiple ROIs ──
+                # ── Battle-end detection ──
                 roi_cache: Dict[tuple, object] = {}
                 end_scores: List[Tuple[str, float]] = []
                 for key, roi_params in battle_end_keys.items():
-                    cache_key = roi_params
-                    if cache_key not in roi_cache:
+                    if roi_params not in roi_cache:
                         roi_bgr = _extract_roi(full_window_bgr, width, height, *roi_params)
-                        roi_cache[cache_key] = preprocess(roi_bgr)
-                    roi_processed = roi_cache[cache_key]
-                    s = match_single(roi_processed, templates, key, scale=scale)
+                        roi_cache[roi_params] = preprocess(roi_bgr)
+                    s = match_single(roi_cache[roi_params], templates, key, scale=scale)
                     end_scores.append((key, s))
 
                 best_end_score = max((s for _, s in end_scores), default=0.0)
                 best_end_name = max(end_scores, key=lambda x: x[1])[0] if end_scores else ""
 
-                # Action score: exclude battle-end, qiudaidai, yes
-                excluded_keys = set(battle_end_keys.keys()) | _ACTION_SPECIAL_KEYS
+                # Action score: exclude battle-end templates + special keys
+                excluded_keys = set(battle_end_keys.keys()) | _ACTION_EXCLUDE_KEYS
                 action_score = -1.0
                 action_template = ""
                 for tpl_name, tpl_score in all_matches:
@@ -200,57 +187,48 @@ class Engine:
 
                 is_hit = action_score >= CONFIG.match_threshold
 
-                # ── Battle start: action detected in non-battle state ──
+                # ── Battle start ──
                 if not in_battle and is_hit:
                     battle_count += 1
                     is_pollute_battle = pollute_capture_score > capture_score
+                    spirit_name = ""
                     if is_pollute_battle:
                         pollute_count += 1
+                        spirit_name = recognize_spirit_name(full_window_bgr, width, height)
+                        log_pollute_battle(pollute_count, spirit_name)
 
                     logging.info(_SEP)
                     logging.info(
-                        ">>> 检测到战斗开始（第 %d 场，%s，累计污染 %d 次）",
+                        ">>> 战斗开始（第 %d 场，%s，累计污染 %d 次%s）"
+                        "  [capture=%.3f pollute=%.3f]",
                         battle_count,
                         "污染" if is_pollute_battle else "普通",
                         pollute_count,
+                        f"，精灵：{spirit_name}" if spirit_name else "",
+                        capture_score,
+                        pollute_capture_score,
                     )
 
                     event = BattleEvent(
-                        hwnd=hwnd,
-                        templates=templates,
-                        scale=scale,
-                        battle_count=battle_count,
-                        pollute_count=pollute_count,
-                        capture_score=capture_score,
-                        pollute_capture_score=pollute_capture_score,
-                        window_width=width,
-                        window_height=height,
+                        hwnd=hwnd, templates=templates, scale=scale,
+                        battle_count=battle_count, pollute_count=pollute_count,
+                        capture_score=capture_score, pollute_capture_score=pollute_capture_score,
+                        window_width=width, window_height=height,
                     )
                     self._mode.on_battle_start(event)
-
-                    log_audit(
-                        "战斗次数增加",
-                        战斗次数=battle_count,
-                        污染次数=pollute_count,
-                    )
                     in_battle = True
 
-                # ── Battle end: best battle-end template ──
+                # ── Battle end ──
                 end_detected = best_end_score >= CONFIG.match_threshold
                 if in_battle and end_detected:
-                    logging.info("<<< 检测到战斗结束（第 %d 场，%.3f by %s）", battle_count, best_end_score, best_end_name)
+                    logging.info("<<< 战斗结束（第 %d 场，%.3f by %s）", battle_count, best_end_score, best_end_name)
                     logging.info(_SEP)
 
                     event = BattleEvent(
-                        hwnd=hwnd,
-                        templates=templates,
-                        scale=scale,
-                        battle_count=battle_count,
-                        pollute_count=pollute_count,
-                        capture_score=capture_score,
-                        pollute_capture_score=pollute_capture_score,
-                        window_width=width,
-                        window_height=height,
+                        hwnd=hwnd, templates=templates, scale=scale,
+                        battle_count=battle_count, pollute_count=pollute_count,
+                        capture_score=capture_score, pollute_capture_score=pollute_capture_score,
+                        window_width=width, window_height=height,
                     )
                     self._mode.on_battle_end(event)
                     in_battle = False
@@ -266,39 +244,27 @@ class Engine:
                 else:
                     logging.info("行动检测: %s=%.3f", action_template, action_score)
 
-                    # ── Teammate reconnect detection (silent) ──
+                    # ── Teammate reconnect ──
                     center_roi = CONFIG.reconnect_center_roi
                     center_bgr = _extract_roi(full_window_bgr, width, height, *center_roi)
                     center_processed = preprocess(center_bgr)
                     reconnect_score = match_single(center_processed, templates, reconnect_template_key, scale=scale)
-
-                    if reconnect_score >= CONFIG.match_threshold:
-                        logging.debug("检测到同行请求，按 F 确认（qiudaidai=%.3f）", reconnect_score)
+                    if reconnect_score >= CONFIG.reconnect_threshold:
+                        logging.info("检测到同行请求，按 F 确认（qiudaidai=%.3f）", reconnect_score)
                         press_once(hwnd, CONFIG.reconnect_accept_key)
 
                 event = BattleEvent(
-                    hwnd=hwnd,
-                    templates=templates,
-                    scale=scale,
-                    battle_count=battle_count,
-                    pollute_count=pollute_count,
-                    capture_score=capture_score,
-                    pollute_capture_score=pollute_capture_score,
-                    window_width=width,
-                    window_height=height,
+                    hwnd=hwnd, templates=templates, scale=scale,
+                    battle_count=battle_count, pollute_count=pollute_count,
+                    capture_score=capture_score, pollute_capture_score=pollute_capture_score,
+                    window_width=width, window_height=height,
                 )
-                # on_tick_display handled above in per-tick display block
 
                 # ── Action within battle ──
                 now = time.time()
-                cooldown_ready = (now - last_trigger_time) >= CONFIG.trigger_cooldown_sec
-
-                if in_battle and is_hit and cooldown_ready:
+                if in_battle and is_hit and (now - last_trigger_time) >= CONFIG.trigger_cooldown_sec:
                     extra_cooldown = self._mode.on_action(event, is_hit, action_score)
-                    if extra_cooldown is not None:
-                        last_trigger_time = now + extra_cooldown
-                    else:
-                        last_trigger_time = now
+                    last_trigger_time = now + (extra_cooldown if extra_cooldown is not None else 0)
 
                 self._push_status(
                     battle_count=battle_count,
@@ -306,4 +272,6 @@ class Engine:
                     state="战斗中" if in_battle else "待机",
                     score=action_score,
                 )
-                time.sleep(interval)
+
+                jitter = random.uniform(-interval * 0.15, interval * 0.15)
+                time.sleep(max(0.05, interval + jitter))

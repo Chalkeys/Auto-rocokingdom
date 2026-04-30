@@ -1,5 +1,18 @@
 # 更新日志
 
+### 2026-05-01（本地合并上游 + RapidOCR 替换）
+
+1. 合并上游 yorusacri/Auto-rocokingdom 最新四个提交（2026-04-28 ~ 2026-05-01）。
+2. 将 EasyOCR 替换为 RapidOCR（`rapidocr-onnxruntime`）：无需 PyTorch，体积小，安装速度快；`pyproject.toml` 改为 `[project.optional-dependencies] ocr = ["rapidocr-onnxruntime"]`。
+3. 键盘/鼠标模拟改用 `SendInput`：走系统硬件输入栈，支持扩展键和扫描码，随机延迟拟真。
+4. 主循环轮询间隔加入 ±15% 随机抖动。
+5. 污染战斗 OCR 识别精灵名称，写入 `logs/pollute_log.csv`（每次启动写入 session 标记行）。
+6. `capture.png` / `pollute_capture.png` 排除出行动检测评分；同行检测使用独立阈值 `reconnect_threshold=0.6`。
+7. 移除 `heaths.png`、`skill2.png`、`skill3.png` 模板；`EscapeMode` 改用 `best_yes_score_and_loc` 匹配确认按钮。
+8. 新增 `debug_templates.py`：输出预处理后的模板图和掩码用于调试。
+9. GUI 增加断开继续功能：停止后再次开始可选择继承或重置统计；窗口丢失后弹窗询问是否选择新窗口。
+10. 悬浮窗（OverlayWindow）：始终置顶、可拖动、透明度可调；污染次数达到 70/80 次时变色警示。
+
 ### 2026-04-21
 
 1. 新增 `pyproject.toml`，支持使用 `uv sync` 一键安装依赖，安装更快更可靠。

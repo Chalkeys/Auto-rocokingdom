@@ -9,7 +9,6 @@ from core.vision import Template
 
 @dataclass
 class BattleEvent:
-    """每轮循环产生的感知数据，传给模式的回调"""
     hwnd: int
     templates: List[Template]
     scale: float
@@ -41,14 +40,3 @@ class BaseMode(ABC):
 
     def on_battle_end(self, event: BattleEvent) -> None:
         """战斗结束时回调"""
-
-    def on_tick_display(self, event: BattleEvent, is_hit: bool, action_score: float, action_template: str) -> None:
-        """每轮终端显示，子类可覆盖自定义输出"""
-        import logging
-        logging.info(
-            "行动检测=%s 行动分数=%.3f 检测模板=%s 污染次数=%d",
-            is_hit,
-            action_score,
-            action_template,
-            event.pollute_count,
-        )

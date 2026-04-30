@@ -3,7 +3,6 @@ from typing import Optional
 
 from config import CONFIG
 from core.input import press_once
-from core.logger import log_audit
 from modes.base import BaseMode, BattleEvent
 from modes.escape import EscapeMode
 
@@ -31,9 +30,7 @@ class SmartMode(BaseMode):
         return "智能模式"
 
     def _classify(self, event: BattleEvent) -> str:
-        if event.pollute_capture_score > event.capture_score:
-            return "pollute"
-        return "normal"
+        return "pollute" if event.pollute_capture_score > event.capture_score else "normal"
 
     def _action_label(self, action: str) -> str:
         labels = {"gather": "聚能", "escape": "逃跑", "skill1_gather": "技能1+聚能"}
@@ -41,25 +38,14 @@ class SmartMode(BaseMode):
 
     def on_battle_start(self, event: BattleEvent) -> None:
         battle_type = self._classify(event)
-        self._current_action = (
-            self._pollute_action if battle_type == "pollute" else self._normal_action
-        )
+        self._current_action = self._pollute_action if battle_type == "pollute" else self._normal_action
         self._skill1_used = False
-
-        mode_label = "污染" if battle_type == "pollute" else "普通"
-        action_label = self._action_label(self._current_action)
         logging.info(
             "智能模式判型: 本场=%s → %s（capture=%.3f, pollute_capture=%.3f）",
-            mode_label, action_label,
-            event.capture_score, event.pollute_capture_score,
-        )
-        log_audit(
-            "智能模式判型",
-            战斗次数=event.battle_count,
-            战斗类型=mode_label,
-            动作=self._current_action,
-            capture分数=round(event.capture_score, 4),
-            pollute_capture分数=round(event.pollute_capture_score, 4),
+            "污染" if battle_type == "pollute" else "普通",
+            self._action_label(self._current_action),
+            event.capture_score,
+            event.pollute_capture_score,
         )
 
     def on_action(self, event: BattleEvent, is_hit: bool, action_score: float) -> Optional[float]:
@@ -68,9 +54,7 @@ class SmartMode(BaseMode):
 
         if self._current_action is None:
             battle_type = self._classify(event)
-            self._current_action = (
-                self._pollute_action if battle_type == "pollute" else self._normal_action
-            )
+            self._current_action = self._pollute_action if battle_type == "pollute" else self._normal_action
             self._skill1_used = False
             logging.info("智能模式兜底判型: %s → %s", battle_type, self._action_label(self._current_action))
 
@@ -79,7 +63,7 @@ class SmartMode(BaseMode):
             logging.info("智能模式动作: 已触发按键 %s（本场=聚能）", CONFIG.press_key)
             return None
         elif self._current_action == "escape":
-            logging.info("智能模式动作: 已触发 ESC（本场=逃跑）")
+            logging.info("智能模式动作: 触发逃跑")
             return self._escape_delegate.on_action(event, is_hit, action_score)
         elif self._current_action == "skill1_gather":
             if not self._skill1_used:
@@ -96,9 +80,3 @@ class SmartMode(BaseMode):
     def on_battle_end(self, event: BattleEvent) -> None:
         self._current_action = None
         self._skill1_used = False
-
-    def on_tick_display(self, event: BattleEvent, is_hit: bool, action_score: float, action_template: str) -> None:
-        logging.info(
-            "行动检测=%s 行动分数=%.3f 检测模板=%s 污染次数=%d",
-            is_hit, action_score, action_template, event.pollute_count,
-        )
