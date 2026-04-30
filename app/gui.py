@@ -327,6 +327,11 @@ class App(tk.Tk):
 
         idx = self._win_combo.current()
         target_hwnd = self._hwnd_list[idx] if 0 <= idx < len(self._hwnd_list) else None
+        if target_hwnd:
+            try:
+                ctypes.windll.user32.SetForegroundWindow(target_hwnd)
+            except Exception:
+                pass
         engine = Engine(
             mode,
             stop_event=self._stop_event,
