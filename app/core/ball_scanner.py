@@ -1,6 +1,7 @@
 """Scan bag UI for ball counts using OCR + template matching."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Optional
@@ -40,8 +41,10 @@ def _ocr_frame(bgr: np.ndarray) -> list:
     try:
         from rapidocr_onnxruntime import RapidOCR
         result, _ = RapidOCR()(bgr)
+        logging.debug("[ball_scanner] OCR 原始结果: %s", result)
         return result or []
-    except Exception:
+    except Exception as e:
+        logging.warning("[ball_scanner] OCR 失败: %s", e)
         return []
 
 
@@ -121,8 +124,15 @@ def extract_icons(hwnd: int) -> tuple[np.ndarray | None, list[tuple[np.ndarray, 
     from core.capture import capture_window_bgr
     frame = capture_window_bgr(hwnd)
     if frame is None:
+        logging.warning("[ball_scanner] 截图失败（hwnd=0x%X）", hwnd)
         return None, []
-    hits = _find_count_positions(_ocr_frame(frame))
+    logging.info("[ball_scanner] 截图成功，尺寸 %dx%d", frame.shape[1], frame.shape[0])
+    ocr_results = _ocr_frame(frame)
+    logging.info("[ball_scanner] OCR 返回 %d 条结果", len(ocr_results))
+    hits = _find_count_positions(ocr_results)
+    logging.info("[ball_scanner] 匹配到 %d 个 x<N> 计数", len(hits))
+    for h in hits:
+        logging.debug("[ball_scanner]   cy=%.0f cx=%.0f count=%d", *h)
     if not hits:
         return frame, []
     icon_h = _estimate_icon_height(hits)

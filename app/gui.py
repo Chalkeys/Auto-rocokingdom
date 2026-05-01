@@ -470,19 +470,36 @@ class App(tk.Tk):
 
     def _scan_bag(self, hwnd, *, label: str = "") -> dict | None:
         """Prompt user to open bag, then OCR-scan ball counts."""
-        from core.ball_scanner import scan_balls
+        from core.ball_scanner import scan_balls, extract_icons
+        import logging
         prompt = f"请在游戏中打开背包（{label}），然后点击【确定】进行截图识别。"
         if not messagebox.askokcancel("扫描背包", prompt):
             return None
         if hwnd is None:
             messagebox.showwarning("扫描失败", "未选择游戏窗口，无法截图。")
             return None
-        result = scan_balls(hwnd)
-        if not result:
-            messagebox.showwarning("扫描失败", "未识别到球数信息，请确认背包已打开。")
+        # Use extract_icons to get detailed diagnostics
+        frame, icons = extract_icons(hwnd)
+        if frame is None:
+            messagebox.showwarning("扫描失败", "截图失败，请确认游戏窗口未被最小化。")
             return None
+        if not icons:
+            h, w = frame.shape[:2]
+            messagebox.showwarning(
+                "扫描失败",
+                f"截图成功（{w}×{h}），但未找到 x<数字> 格式的球数文字。\n\n"
+                "可能原因：\n"
+                "• 背包未打开\n"
+                "• 游戏界面语言不是中文/OCR未识别到 x/× 符号\n"
+                "• RapidOCR 未安装（pip install rapidocr-onnxruntime）\n\n"
+                "详细日志请查看运行日志框。"
+            )
+            return None
+        result = {name: count for _, count, _ in icons for name in [f"球{i+1:02d}"]}
+        # Re-run full scan (with template matching)
+        result = scan_balls(hwnd)
         preview = "\n".join(f"  {k}: x{v}" for k, v in result.items())
-        messagebox.showinfo(f"扫描结果（{label}）", f"识别到以下球数：\n{preview}")
+        messagebox.showinfo(f"扫描结果（{label}）", f"识别到 {len(result)} 种球：\n{preview}")
         return result
 
     def _show_session_report(self, ball_end: dict) -> None:
