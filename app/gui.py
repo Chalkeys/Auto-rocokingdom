@@ -127,6 +127,21 @@ class _QueueLogHandler(logging.Handler):
             self.handleError(record)
 
 
+def _force_foreground(hwnd: int) -> None:
+    """Bring hwnd to foreground, bypassing Windows focus-steal restrictions."""
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    fg_hwnd = user32.GetForegroundWindow()
+    fg_thread = user32.GetWindowThreadProcessId(fg_hwnd, None)
+    cur_thread = kernel32.GetCurrentThreadId()
+    attached = fg_thread != cur_thread and user32.AttachThreadInput(fg_thread, cur_thread, True)
+    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    user32.BringWindowToTop(hwnd)
+    user32.SetForegroundWindow(hwnd)
+    if attached:
+        user32.AttachThreadInput(fg_thread, cur_thread, False)
+
+
 class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -329,7 +344,7 @@ class App(tk.Tk):
         target_hwnd = self._hwnd_list[idx] if 0 <= idx < len(self._hwnd_list) else None
         if target_hwnd:
             try:
-                ctypes.windll.user32.SetForegroundWindow(target_hwnd)
+                _force_foreground(target_hwnd)
             except Exception:
                 pass
         engine = Engine(
