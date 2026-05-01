@@ -9,9 +9,12 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 
+import time as _time
+
 from config import CONFIG
 from core.engine import Engine
 from core import input as _input_mod
+from core import session as _session
 from core.logger import setup_logging
 from core.window import find_all_windows_by_keyword
 from modes import MODE_REGISTRY
@@ -150,6 +153,7 @@ class App(tk.Tk):
         self.resizable(False, False)
 
         self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
         self._msg_queue: queue.Queue = queue.Queue()
         self._engine_thread: threading.Thread | None = None
         self._hwnd_list: list[int | None] = [None]
@@ -159,10 +163,15 @@ class App(tk.Tk):
         self._saved_pollute_count = 0
         self._window_lost = False
         self._spirit_var = tk.StringVar(value="—")
+        self._is_paused = False
+        self._session_start_time = 0.0
+        self._ball_start: dict = {}
+        self._session_mode_label = ""
 
         setup_logging()
         self._install_log_handler()
         self._build_ui()
+        self._check_unclean_session()
         self._poll()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -264,11 +273,15 @@ class App(tk.Tk):
                 self._pollute_label = value_lbl
                 self._pollute_default_fg = value_lbl.cget("foreground")
 
-        # Start / stop + overlay toggle
+        # Start / pause / stop + overlay toggle
         btn_frame = ttk.Frame(self, padding=(12, 4))
         btn_frame.pack(fill="x")
-        self._btn = ttk.Button(btn_frame, text="开始运行", command=self._toggle, width=22)
-        self._btn.pack(side="left", expand=True)
+        self._start_btn = ttk.Button(btn_frame, text="开始运行", command=self._do_start, width=14)
+        self._start_btn.pack(side="left", expand=True)
+        self._pause_btn = ttk.Button(btn_frame, text="暂停", command=self._do_pause, width=8, state="disabled")
+        self._pause_btn.pack(side="left", padx=4)
+        self._stop_btn = ttk.Button(btn_frame, text="停止运行", command=self._do_stop, width=10, state="disabled")
+        self._stop_btn.pack(side="left")
         self._overlay_btn = ttk.Button(btn_frame, text="悬浮窗", command=self._toggle_overlay, width=8)
         self._overlay_btn.pack(side="left", padx=(6, 0))
 
@@ -336,15 +349,34 @@ class App(tk.Tk):
         self._win_combo["values"] = labels
         self._win_combo.current(0)
 
-    def _toggle(self) -> None:
-        if self._engine_thread and self._engine_thread.is_alive():
-            self._do_stop()
-        else:
-            self._do_start()
+    def _check_unclean_session(self) -> None:
+        """On startup: if the last session wasn't cleanly stopped, offer to restore counts."""
+        data = _session.load()
+        if not data or data.get("clean_exit"):
+            return
+        bc = data.get("battle_count", 0)
+        pc = data.get("pollute_count", 0)
+        if bc == 0 and pc == 0:
+            return
+        paused_tag = "（已暂停）" if data.get("is_paused") else "（异常退出）"
+        if messagebox.askyesno(
+            "恢复上次统计",
+            f"检测到上次未正常结束的会话 {paused_tag}\n"
+            f"战斗 {bc} 次，污染 {pc} 次\n\n"
+            "是否继承这些统计数据？",
+        ):
+            self._saved_battle_count = bc
+            self._saved_pollute_count = pc
+            self._battle_var.set(str(bc))
+            self._update_pollute_display(pc)
+            self._ball_start = data.get("ball_start") or {}
 
     def _do_start(self) -> None:
         self._window_lost = False
         self._stop_event.clear()
+        self._pause_event.clear()
+        self._is_paused = False
+
         key = self._mode_var.get()
         if key == "4":
             pollute = self._smart_action_keys[self._smart_pollute_combo.current()]
@@ -352,6 +384,7 @@ class App(tk.Tk):
             mode = SmartMode(pollute_action=pollute, normal_action=normal)
         else:
             mode = MODE_REGISTRY[key]()
+        self._session_mode_label = mode.label
 
         # Offer to inherit or reset previous session stats
         if self._saved_battle_count > 0 or self._saved_pollute_count > 0:
@@ -363,36 +396,113 @@ class App(tk.Tk):
             if not inherit:
                 self._saved_battle_count = 0
                 self._saved_pollute_count = 0
+                self._ball_start = {}
                 self._battle_var.set("0")
                 self._update_pollute_display(0)
 
-        initial_battle = self._saved_battle_count
-        initial_pollute = self._saved_pollute_count
-
+        # Optionally scan bag for ball tracking
         idx = self._win_combo.current()
         target_hwnd = self._hwnd_list[idx] if 0 <= idx < len(self._hwnd_list) else None
+        if not self._ball_start:
+            if messagebox.askyesno("记录球数", "是否记录开始前的背包球数，以便结束时统计消耗？"):
+                self._ball_start = self._scan_bag(target_hwnd, label="开始") or {}
+
+        self._session_start_time = _time.time()
         engine = Engine(
             mode,
             stop_event=self._stop_event,
+            pause_event=self._pause_event,
             status_callback=lambda s: self._msg_queue.put(("status", s)),
             target_hwnd=target_hwnd,
-            initial_battle_count=initial_battle,
-            initial_pollute_count=initial_pollute,
+            initial_battle_count=self._saved_battle_count,
+            initial_pollute_count=self._saved_pollute_count,
+            start_time=self._session_start_time,
+            mode_label=self._session_mode_label,
+            ball_start=self._ball_start,
         )
         self._engine_thread = threading.Thread(target=engine.run, daemon=True)
         self._engine_thread.start()
-        self._btn.config(text="停止运行")
+        self._start_btn.config(state="disabled")
+        self._pause_btn.config(state="normal", text="暂停")
+        self._stop_btn.config(state="normal")
         self._state_var.set("运行中…")
         self._running_mode_var.set(mode.label)
         self._set_controls_state("disabled")
 
+    def _do_pause(self) -> None:
+        if not (self._engine_thread and self._engine_thread.is_alive()):
+            return
+        if self._is_paused:
+            # Resume — auto-inherit, no dialog
+            self._pause_event.clear()
+            self._is_paused = False
+            self._pause_btn.config(text="暂停")
+            self._state_var.set("运行中…")
+        else:
+            self._pause_event.set()
+            self._is_paused = True
+            self._pause_btn.config(text="继续")
+            self._state_var.set("已暂停")
+
     def _do_stop(self) -> None:
+        self._pause_event.clear()
+        self._is_paused = False
         self._stop_event.set()
-        self._btn.config(text="开始运行")
+
+        # Ball consumption report
+        idx = self._win_combo.current()
+        target_hwnd = self._hwnd_list[idx] if 0 <= idx < len(self._hwnd_list) else None
+        if self._ball_start:
+            ball_end = self._scan_bag(target_hwnd, label="结束")
+            if ball_end:
+                self._show_session_report(ball_end)
+
+        _session.mark_clean()
+        self._ball_start = {}
+        self._start_btn.config(state="normal")
+        self._pause_btn.config(state="disabled", text="暂停")
+        self._stop_btn.config(state="disabled")
         self._state_var.set("已停止")
         self._running_mode_var.set("—")
         self._spirit_var.set("—")
         self._set_controls_state("normal")
+
+    def _scan_bag(self, hwnd, *, label: str = "") -> dict | None:
+        """Prompt user to open bag, then OCR-scan ball counts."""
+        from core.ball_scanner import scan_balls
+        prompt = f"请在游戏中打开背包（{label}），然后点击【确定】进行截图识别。"
+        if not messagebox.askokcancel("扫描背包", prompt):
+            return None
+        if hwnd is None:
+            messagebox.showwarning("扫描失败", "未选择游戏窗口，无法截图。")
+            return None
+        result = scan_balls(hwnd)
+        if not result:
+            messagebox.showwarning("扫描失败", "未识别到球数信息，请确认背包已打开。")
+            return None
+        preview = "\n".join(f"  {k}: x{v}" for k, v in result.items())
+        messagebox.showinfo(f"扫描结果（{label}）", f"识别到以下球数：\n{preview}")
+        return result
+
+    def _show_session_report(self, ball_end: dict) -> None:
+        from core.ball_scanner import diff_balls
+        elapsed = _time.time() - self._session_start_time
+        h, m, s = int(elapsed // 3600), int((elapsed % 3600) // 60), int(elapsed % 60)
+        duration_str = f"{h}时{m}分{s}秒" if h else f"{m}分{s}秒"
+
+        diff = diff_balls(self._ball_start, ball_end)
+        if diff:
+            ball_lines = "\n".join(f"  {k}: 消耗 {v} 个" for k, v in diff.items())
+        else:
+            ball_lines = "  无消耗（或球数未变化）"
+
+        messagebox.showinfo(
+            "本次会话统计",
+            f"⏱ 总时长：{duration_str}\n"
+            f"⚔ 战斗次数：{self._saved_battle_count}\n"
+            f"☣ 污染次数：{self._saved_pollute_count}\n\n"
+            f"🎯 球消耗：\n{ball_lines}",
+        )
 
     def _set_controls_state(self, state: str) -> None:
         for child in self.winfo_children():
@@ -412,6 +522,9 @@ class App(tk.Tk):
             self._on_mode_change()
 
     def _on_close(self) -> None:
+        # If engine is running and not cleanly stopped, session file stays unclean
+        # (engine's continuous saves already wrote clean_exit=False)
+        self._pause_event.clear()
         self._stop_event.set()
         self.destroy()
 
@@ -427,7 +540,7 @@ class App(tk.Tk):
                     self._update_status(data)
         except queue.Empty:
             pass
-        # Auto-reset button if engine thread ended on its own
+        # Auto-reset buttons if engine thread ended on its own
         if self._engine_thread and not self._engine_thread.is_alive():
             if not self._stop_event.is_set():
                 was_window_lost = self._window_lost

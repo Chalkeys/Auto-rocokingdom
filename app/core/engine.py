@@ -11,6 +11,7 @@ from core.capture import capture_window_bgr
 from core.input import press_once
 from core.ocr import recognize_spirit_name
 from core.pollute_logger import log_mode_start, log_pollute_battle
+from core import session as _session
 from core.vision import (
     Template,
     best_match_score,
@@ -56,17 +57,25 @@ class Engine:
         self,
         mode: BaseMode,
         stop_event: Optional[threading.Event] = None,
+        pause_event: Optional[threading.Event] = None,
         status_callback: Optional[Callable[[Dict], None]] = None,
         target_hwnd: Optional[int] = None,
         initial_battle_count: int = 0,
         initial_pollute_count: int = 0,
+        start_time: float = 0.0,
+        mode_label: str = "",
+        ball_start: Optional[dict] = None,
     ) -> None:
         self._mode = mode
         self._stop_event = stop_event if stop_event is not None else threading.Event()
+        self._pause_event = pause_event if pause_event is not None else threading.Event()
         self._status_callback = status_callback
         self._target_hwnd = target_hwnd
         self._initial_battle_count = initial_battle_count
         self._initial_pollute_count = initial_pollute_count
+        self._start_time = start_time or __import__("time").time()
+        self._mode_label = mode_label or mode.label
+        self._ball_start = ball_start or {}
 
     def _push_status(self, **kwargs: object) -> None:
         if self._status_callback is not None:
@@ -113,6 +122,22 @@ class Engine:
 
         with mss.mss() as sct:
             while not self._stop_event.is_set():
+                if self._pause_event.is_set():
+                    self._push_status(
+                        state="已暂停",
+                        battle_count=battle_count,
+                        pollute_count=pollute_count,
+                    )
+                    _session.save(
+                        battle_count=battle_count,
+                        pollute_count=pollute_count,
+                        mode_label=self._mode_label,
+                        start_time=self._start_time,
+                        is_paused=True,
+                        ball_start=self._ball_start,
+                    )
+                    time.sleep(0.5)
+                    continue
                 if self._target_hwnd is not None:
                     hwnd = self._target_hwnd if (_win32gui and _win32gui.IsWindow(self._target_hwnd)) else None
                 else:
@@ -274,6 +299,13 @@ class Engine:
                     state="战斗中" if in_battle else "待机",
                     score=action_score,
                     spirit_name=last_spirit_name,
+                )
+                _session.save(
+                    battle_count=battle_count,
+                    pollute_count=pollute_count,
+                    mode_label=self._mode_label,
+                    start_time=self._start_time,
+                    ball_start=self._ball_start,
                 )
 
                 jitter = random.uniform(-interval * 0.15, interval * 0.15)
