@@ -575,7 +575,9 @@ class App(tk.Tk):
 
             preview_frame = ttk.LabelFrame(win, text="截图预览（青色框 = 识别到的球图标）", padding=4)
             preview_frame.pack(fill="x", padx=8, pady=(8, 4))
-            tk.Label(preview_frame, image=photo_preview).pack()
+            lbl_preview = tk.Label(preview_frame, image=photo_preview)
+            lbl_preview.image = photo_preview  # prevent GC
+            lbl_preview.pack()
 
         ttk.Separator(win, orient="horizontal").pack(fill="x", padx=8, pady=4)
 
@@ -597,7 +599,9 @@ class App(tk.Tk):
                 pil_img = Image.fromarray(rgb).resize((DISP, DISP))
                 photo = ImageTk.PhotoImage(pil_img)
                 photo_refs.append(photo)
-                tk.Label(cell, image=photo).pack()
+                lbl = tk.Label(cell, image=photo)
+                lbl.image = photo  # prevent GC
+                lbl.pack()
             else:
                 tk.Label(cell, text=f"[{i+1}]", width=6, height=3).pack()
 
@@ -608,6 +612,8 @@ class App(tk.Tk):
                 row=row * 2 + 1, column=col, padx=6, pady=(0, 8)
             )
             entries.append((name_var, icon_bgr))
+
+        win.photo_refs = photo_refs  # prevent GC of all PhotoImage objects
 
         def _save() -> None:
             saved = 0
