@@ -74,8 +74,8 @@ def _estimate_icon_height(hits: list[tuple[float, float, int]]) -> float:
     return float(min(gaps)) * 0.75
 
 
-def _crop_icon(bgr: np.ndarray, cx: float, cy: float, icon_h: float) -> Optional[np.ndarray]:
-    """Crop the icon above the count text at (cx, cy)."""
+def _icon_box(bgr: np.ndarray, cx: float, cy: float, icon_h: float) -> Optional[tuple[int,int,int,int]]:
+    """Return (left, top, right, bot) for the icon above the count text."""
     h, w = bgr.shape[:2]
     gap = max(4, int(icon_h * 0.05))
     top = max(0, int(cy - icon_h - gap))
@@ -85,6 +85,15 @@ def _crop_icon(bgr: np.ndarray, cx: float, cy: float, icon_h: float) -> Optional
     right = min(w, int(cx) + half)
     if bot <= top or right <= left:
         return None
+    return left, top, right, bot
+
+
+def _crop_icon(bgr: np.ndarray, cx: float, cy: float, icon_h: float) -> Optional[np.ndarray]:
+    """Crop the icon above the count text at (cx, cy)."""
+    box = _icon_box(bgr, cx, cy, icon_h)
+    if box is None:
+        return None
+    left, top, right, bot = box
     crop = bgr[top:bot, left:right]
     return crop if crop.size > 0 else None
 
@@ -103,26 +112,31 @@ def _match_icon(icon_bgr: np.ndarray, templates: dict[str, np.ndarray]) -> Optio
     return best_name if best_score >= _MATCH_THRESHOLD else None
 
 
-def extract_icons(hwnd: int) -> list[tuple[np.ndarray, int]]:
+def extract_icons(hwnd: int) -> tuple[np.ndarray | None, list[tuple[np.ndarray, int, tuple[int,int,int,int]]]]:
     """
-    Capture the bag and return (icon_bgr, count) pairs in grid order.
+    Capture the bag and return (full_frame, [(icon_bgr, count, box), ...]) in grid order.
+    box = (left, top, right, bot) in full_frame coordinates.
     Used for the template-setup dialog.
     """
     from core.capture import capture_window_bgr
     frame = capture_window_bgr(hwnd)
     if frame is None:
-        return []
+        return None, []
     hits = _find_count_positions(_ocr_frame(frame))
     if not hits:
-        return []
+        return frame, []
     icon_h = _estimate_icon_height(hits)
     hits.sort(key=lambda h: (round(h[0] / 50), h[1]))
     result = []
     for cy, cx, count in hits:
-        crop = _crop_icon(frame, cx, cy, icon_h)
-        if crop is not None:
-            result.append((crop, count))
-    return result
+        box = _icon_box(frame, cx, cy, icon_h)
+        if box is None:
+            continue
+        left, top, right, bot = box
+        crop = frame[top:bot, left:right]
+        if crop.size > 0:
+            result.append((crop, count, box))
+    return frame, result
 
 
 def scan_balls(hwnd: int) -> dict[str, int]:

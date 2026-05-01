@@ -506,8 +506,9 @@ class App(tk.Tk):
         )
 
     def _open_template_manager(self) -> None:
-        """Open the ball template setup dialog."""
+        """Open the ball template setup dialog with crop preview."""
         from core.ball_scanner import extract_icons, save_template, load_ball_templates
+        import cv2 as _cv2
 
         idx = self._win_combo.current()
         hwnd = self._hwnd_list[idx] if 0 <= idx < len(self._hwnd_list) else None
@@ -517,40 +518,62 @@ class App(tk.Tk):
         if not messagebox.askokcancel("球模板管理", "请在游戏中打开背包，然后点击【确定】进行截图。"):
             return
 
-        icons = extract_icons(hwnd)
+        frame, icons = extract_icons(hwnd)
         if not icons:
             messagebox.showwarning("球模板", "未识别到球数信息，请确认背包已打开。")
             return
-
-        # Load existing templates to pre-fill names
-        existing = {v: k for k, v in {}}  # placeholder
-        existing_names = set(load_ball_templates().keys())
-
-        win = tk.Toplevel(self)
-        win.title("球模板管理 — 为每个球命名后点击保存")
-        win.resizable(False, False)
-        win.grab_set()
 
         try:
             from PIL import Image, ImageTk
             has_pil = True
         except ImportError:
             has_pil = False
+            messagebox.showwarning("球模板", "需要安装 Pillow 才能显示图标预览。\npip install Pillow")
 
-        import cv2 as _cv2
-        DISP = 56  # display size in dialog
+        win = tk.Toplevel(self)
+        win.title("球模板管理 — 确认裁剪位置，为每个球命名后保存")
+        win.resizable(True, True)
+        win.grab_set()
 
-        canvas_frame = ttk.Frame(win, padding=8)
-        canvas_frame.pack(fill="both", expand=True)
+        photo_refs: list = []
 
-        entries: list[tuple[tk.StringVar, bytes]] = []  # (name_var, icon_bgr)
-        photo_refs: list = []  # keep PhotoImage references alive
+        # ── 上半部分：全图预览，标注裁剪框 ──
+        if has_pil and frame is not None:
+            annotated = frame.copy()
+            for i, (_icon, _count, box) in enumerate(icons):
+                l, t, r, b = box
+                _cv2.rectangle(annotated, (l, t), (r, b), (0, 200, 255), 2)
+                _cv2.putText(annotated, str(i + 1), (l + 2, t + 16),
+                             _cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 200, 255), 2)
 
+            h, w = annotated.shape[:2]
+            max_w = min(w, 900)
+            scale = max_w / w
+            preview_w, preview_h = int(w * scale), int(h * scale)
+            small = _cv2.resize(annotated, (preview_w, preview_h))
+            rgb = _cv2.cvtColor(small, _cv2.COLOR_BGR2RGB)
+            pil_preview = Image.fromarray(rgb)
+            photo_preview = ImageTk.PhotoImage(pil_preview)
+            photo_refs.append(photo_preview)
+
+            preview_frame = ttk.LabelFrame(win, text="截图预览（青色框 = 识别到的球图标）", padding=4)
+            preview_frame.pack(fill="x", padx=8, pady=(8, 4))
+            tk.Label(preview_frame, image=photo_preview).pack()
+
+        ttk.Separator(win, orient="horizontal").pack(fill="x", padx=8, pady=4)
+
+        # ── 下半部分：逐球命名 ──
+        DISP = 60
+        name_frame = ttk.LabelFrame(win, text="为每个球命名（留空则不保存）", padding=8)
+        name_frame.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+
+        entries: list[tuple[tk.StringVar, object]] = []
         cols = 6
-        for i, (icon_bgr, count) in enumerate(icons):
+        for i, (icon_bgr, count, _box) in enumerate(icons):
             row, col = divmod(i, cols)
-            cell = ttk.Frame(canvas_frame, padding=2)
-            cell.grid(row=row * 2, column=col, padx=4, pady=2)
+
+            cell = ttk.Frame(name_frame, padding=2)
+            cell.grid(row=row * 2, column=col, padx=6, pady=2)
 
             if has_pil:
                 rgb = _cv2.cvtColor(icon_bgr, _cv2.COLOR_BGR2RGB)
@@ -559,13 +582,13 @@ class App(tk.Tk):
                 photo_refs.append(photo)
                 tk.Label(cell, image=photo).pack()
             else:
-                tk.Label(cell, text=f"[图{i+1}]", width=6).pack()
+                tk.Label(cell, text=f"[{i+1}]", width=6, height=3).pack()
 
             tk.Label(cell, text=f"x{count}", font=("", 8), foreground="gray").pack()
 
             name_var = tk.StringVar()
-            ttk.Entry(canvas_frame, textvariable=name_var, width=10).grid(
-                row=row * 2 + 1, column=col, padx=4, pady=(0, 6)
+            ttk.Entry(name_frame, textvariable=name_var, width=10).grid(
+                row=row * 2 + 1, column=col, padx=6, pady=(0, 8)
             )
             entries.append((name_var, icon_bgr))
 
@@ -579,7 +602,7 @@ class App(tk.Tk):
             win.destroy()
             messagebox.showinfo("球模板", f"已保存 {saved} 个模板。")
 
-        ttk.Button(win, text="保存模板", command=_save).pack(pady=(4, 8))
+        ttk.Button(win, text="保存模板", command=_save, width=16).pack(pady=(0, 8))
 
     def _set_controls_state(self, state: str) -> None:
         for child in self.winfo_children():
