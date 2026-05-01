@@ -284,6 +284,7 @@ class App(tk.Tk):
         self._stop_btn.pack(side="left")
         self._overlay_btn = ttk.Button(btn_frame, text="悬浮窗", command=self._toggle_overlay, width=8)
         self._overlay_btn.pack(side="left", padx=(6, 0))
+        ttk.Button(btn_frame, text="球模板", command=self._open_template_manager, width=7).pack(side="left", padx=(4, 0))
 
         # Log area
         log_frame = ttk.LabelFrame(self, text="运行日志", padding=6)
@@ -503,6 +504,82 @@ class App(tk.Tk):
             f"☣ 污染次数：{self._saved_pollute_count}\n\n"
             f"🎯 球消耗：\n{ball_lines}",
         )
+
+    def _open_template_manager(self) -> None:
+        """Open the ball template setup dialog."""
+        from core.ball_scanner import extract_icons, save_template, load_ball_templates
+
+        idx = self._win_combo.current()
+        hwnd = self._hwnd_list[idx] if 0 <= idx < len(self._hwnd_list) else None
+        if hwnd is None:
+            messagebox.showwarning("球模板", "请先选择游戏窗口。")
+            return
+        if not messagebox.askokcancel("球模板管理", "请在游戏中打开背包，然后点击【确定】进行截图。"):
+            return
+
+        icons = extract_icons(hwnd)
+        if not icons:
+            messagebox.showwarning("球模板", "未识别到球数信息，请确认背包已打开。")
+            return
+
+        # Load existing templates to pre-fill names
+        existing = {v: k for k, v in {}}  # placeholder
+        existing_names = set(load_ball_templates().keys())
+
+        win = tk.Toplevel(self)
+        win.title("球模板管理 — 为每个球命名后点击保存")
+        win.resizable(False, False)
+        win.grab_set()
+
+        try:
+            from PIL import Image, ImageTk
+            has_pil = True
+        except ImportError:
+            has_pil = False
+
+        import cv2 as _cv2
+        DISP = 56  # display size in dialog
+
+        canvas_frame = ttk.Frame(win, padding=8)
+        canvas_frame.pack(fill="both", expand=True)
+
+        entries: list[tuple[tk.StringVar, bytes]] = []  # (name_var, icon_bgr)
+        photo_refs: list = []  # keep PhotoImage references alive
+
+        cols = 6
+        for i, (icon_bgr, count) in enumerate(icons):
+            row, col = divmod(i, cols)
+            cell = ttk.Frame(canvas_frame, padding=2)
+            cell.grid(row=row * 2, column=col, padx=4, pady=2)
+
+            if has_pil:
+                rgb = _cv2.cvtColor(icon_bgr, _cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(rgb).resize((DISP, DISP))
+                photo = ImageTk.PhotoImage(pil_img)
+                photo_refs.append(photo)
+                tk.Label(cell, image=photo).pack()
+            else:
+                tk.Label(cell, text=f"[图{i+1}]", width=6).pack()
+
+            tk.Label(cell, text=f"x{count}", font=("", 8), foreground="gray").pack()
+
+            name_var = tk.StringVar()
+            ttk.Entry(canvas_frame, textvariable=name_var, width=10).grid(
+                row=row * 2 + 1, column=col, padx=4, pady=(0, 6)
+            )
+            entries.append((name_var, icon_bgr))
+
+        def _save() -> None:
+            saved = 0
+            for name_var, icon_bgr in entries:
+                name = name_var.get().strip()
+                if name:
+                    save_template(name, icon_bgr)
+                    saved += 1
+            win.destroy()
+            messagebox.showinfo("球模板", f"已保存 {saved} 个模板。")
+
+        ttk.Button(win, text="保存模板", command=_save).pack(pady=(4, 8))
 
     def _set_controls_state(self, state: str) -> None:
         for child in self.winfo_children():
