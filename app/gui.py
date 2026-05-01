@@ -610,10 +610,16 @@ class App(tk.Tk):
                 continue
             if child.cget("text") == "选择模式":
                 for rb in child.winfo_children():
-                    rb.config(state=state)
+                    try:
+                        rb.config(state=state)
+                    except tk.TclError:
+                        pass
             elif child.cget("text") == "目标窗口":
                 for w in child.winfo_children():
-                    w.config(state=state if state == "disabled" else ("readonly" if isinstance(w, ttk.Combobox) else state))
+                    try:
+                        w.config(state=state if state == "disabled" else ("readonly" if isinstance(w, ttk.Combobox) else state))
+                    except tk.TclError:
+                        pass
         # Smart mode comboboxes: restore to readonly only when mode 4 is selected
         if state == "disabled":
             self._smart_pollute_combo.config(state="disabled")
