@@ -731,8 +731,33 @@ def _ensure_admin() -> None:
     sys.exit(0)
 
 
+def _check_dependencies() -> None:
+    missing = []
+    try:
+        import rapidocr_onnxruntime  # noqa: F401
+    except ImportError:
+        missing.append("rapidocr-onnxruntime")
+    try:
+        from PIL import Image  # noqa: F401
+    except ImportError:
+        missing.append("Pillow")
+    if missing:
+        import tkinter as _tk
+        from tkinter import messagebox as _mb
+        _root = _tk.Tk()
+        _root.withdraw()
+        _mb.showwarning(
+            "缺少依赖",
+            "以下依赖包未安装，部分功能（OCR 球数统计、球模板管理）将无法使用：\n\n"
+            + "\n".join(f"  • {p}" for p in missing)
+            + "\n\n请运行：\n  pip install " + " ".join(missing),
+        )
+        _root.destroy()
+
+
 def main() -> None:
     _ensure_admin()
+    _check_dependencies()
     app = App()
     app.mainloop()
 
