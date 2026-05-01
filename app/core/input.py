@@ -35,6 +35,16 @@ _VK_MAP = {
     "space": win32con.VK_SPACE,
 }
 
+# True = 后台模式 (PostMessage)，False = 前台模式 (SendInput)
+_background: bool = True
+
+
+def set_background_mode(enabled: bool) -> None:
+    global _background
+    _background = enabled
+
+
+# ------------------------------------------------------------------ SendInput
 
 class KEYBDINPUT(ctypes.Structure):
     _fields_ = [
@@ -77,8 +87,7 @@ def _rand_delay(lo: float = 0.03, hi: float = 0.08) -> float:
     return random.uniform(lo, hi)
 
 
-def _attach(hwnd: int):
-    """Attach current thread to hwnd's thread and redirect focus. Returns context tuple."""
+def _attach(hwnd: int) -> tuple:
     user32 = ctypes.windll.user32
     target_tid = user32.GetWindowThreadProcessId(hwnd, None)
     cur_tid = ctypes.windll.kernel32.GetCurrentThreadId()
@@ -99,6 +108,8 @@ def _detach(ctx: tuple) -> None:
         user32.AttachThreadInput(target_tid, cur_tid, False)
 
 
+# ------------------------------------------------------------------ public API
+
 def press_once(hwnd: int, key: str) -> None:
     vk = _VK_MAP.get(key.lower())
     if vk is None:
@@ -107,63 +118,64 @@ def press_once(hwnd: int, key: str) -> None:
         else:
             return
 
-    scan = win32api.MapVirtualKey(vk, 0)
-    ext = KEYEVENTF_EXTENDEDKEY if vk in _EXTENDED_VK else 0
-
-    down = INPUT()
-    down.type = INPUT_KEYBOARD
-    down.union.ki.wVk = vk
-    down.union.ki.wScan = scan
-    down.union.ki.dwFlags = KEYEVENTF_SCANCODE | ext
-
-    up = INPUT()
-    up.type = INPUT_KEYBOARD
-    up.union.ki.wVk = vk
-    up.union.ki.wScan = scan
-    up.union.ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP | ext
-
-    ctx = _attach(hwnd)
-    try:
-        _send_input(down)
+    if _background:
+        scan = win32api.MapVirtualKey(vk, 0)
+        ext = 1 << 24 if vk in _EXTENDED_VK else 0
+        lp_down = 1 | (scan << 16) | ext
+        lp_up   = 1 | (scan << 16) | ext | (1 << 30) | (1 << 31)
+        win32gui.PostMessage(hwnd, win32con.WM_KEYDOWN, vk, lp_down)
         time.sleep(_rand_delay(0.04, 0.10))
-        _send_input(up)
-    finally:
-        _detach(ctx)
+        win32gui.PostMessage(hwnd, win32con.WM_KEYUP, vk, lp_up)
+    else:
+        scan = win32api.MapVirtualKey(vk, 0)
+        ext = KEYEVENTF_EXTENDEDKEY if vk in _EXTENDED_VK else 0
+        down = INPUT(); down.type = INPUT_KEYBOARD
+        down.union.ki.wVk = vk; down.union.ki.wScan = scan
+        down.union.ki.dwFlags = KEYEVENTF_SCANCODE | ext
+        up = INPUT(); up.type = INPUT_KEYBOARD
+        up.union.ki.wVk = vk; up.union.ki.wScan = scan
+        up.union.ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP | ext
+        ctx = _attach(hwnd)
+        try:
+            _send_input(down)
+            time.sleep(_rand_delay(0.04, 0.10))
+            _send_input(up)
+        finally:
+            _detach(ctx)
 
 
 def click_at(hwnd: int, x: int, y: int) -> bool:
     try:
         jx = x + random.randint(-2, 2)
         jy = y + random.randint(-2, 2)
-        sx, sy = win32gui.ClientToScreen(hwnd, (jx, jy))
-        sw = ctypes.windll.user32.GetSystemMetrics(0)
-        sh = ctypes.windll.user32.GetSystemMetrics(1)
-        abs_x = int(sx * 65535 / (sw - 1))
-        abs_y = int(sy * 65535 / (sh - 1))
 
-        move = INPUT()
-        move.type = INPUT_MOUSE
-        move.union.mi.dx = abs_x
-        move.union.mi.dy = abs_y
-        move.union.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE
-
-        down = INPUT()
-        down.type = INPUT_MOUSE
-        down.union.mi.dwFlags = MOUSEEVENTF_LEFTDOWN
-
-        up = INPUT()
-        up.type = INPUT_MOUSE
-        up.union.mi.dwFlags = MOUSEEVENTF_LEFTUP
-
-        ctx = _attach(hwnd)
-        try:
-            _send_input(move)
+        if _background:
+            lp = (jy << 16) | (jx & 0xFFFF)
+            win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
             time.sleep(_rand_delay(0.05, 0.12))
-            _send_input(down)
-            time.sleep(_rand_delay(0.04, 0.09))
-            _send_input(up)
-        finally:
-            _detach(ctx)
+            win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
+        else:
+            sx, sy = win32gui.ClientToScreen(hwnd, (jx, jy))
+            sw = ctypes.windll.user32.GetSystemMetrics(0)
+            sh = ctypes.windll.user32.GetSystemMetrics(1)
+            abs_x = int(sx * 65535 / (sw - 1))
+            abs_y = int(sy * 65535 / (sh - 1))
+            move = INPUT(); move.type = INPUT_MOUSE
+            move.union.mi.dx = abs_x; move.union.mi.dy = abs_y
+            move.union.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE
+            dn = INPUT(); dn.type = INPUT_MOUSE
+            dn.union.mi.dwFlags = MOUSEEVENTF_LEFTDOWN
+            up = INPUT(); up.type = INPUT_MOUSE
+            up.union.mi.dwFlags = MOUSEEVENTF_LEFTUP
+            ctx = _attach(hwnd)
+            try:
+                _send_input(move)
+                time.sleep(_rand_delay(0.05, 0.12))
+                _send_input(dn)
+                time.sleep(_rand_delay(0.04, 0.09))
+                _send_input(up)
+            finally:
+                _detach(ctx)
         return True
     except Exception:
         return False

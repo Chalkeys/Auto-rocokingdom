@@ -11,6 +11,7 @@ from tkinter import messagebox, scrolledtext, ttk
 
 from config import CONFIG
 from core.engine import Engine
+from core import input as _input_mod
 from core.logger import setup_logging
 from core.window import find_all_windows_by_keyword
 from modes import MODE_REGISTRY
@@ -221,6 +222,21 @@ class App(tk.Tk):
         ttk.Button(win_frame, text="刷新", width=6, command=self._refresh_windows).pack(side="left", padx=(6, 0))
         self._refresh_windows()
 
+        # Input mode
+        input_frame = ttk.LabelFrame(self, text="输入模式", padding=(8, 4))
+        input_frame.pack(fill="x", **pad)
+        self._input_mode = tk.BooleanVar(value=True)
+        ttk.Radiobutton(
+            input_frame, text="后台运行（PostMessage，游戏无需在前台）",
+            variable=self._input_mode, value=True,
+            command=self._apply_input_mode,
+        ).pack(anchor="w")
+        ttk.Radiobutton(
+            input_frame, text="前台运行（SendInput，更接近真实输入）",
+            variable=self._input_mode, value=False,
+            command=self._apply_input_mode,
+        ).pack(anchor="w")
+
         # Status
         status_frame = ttk.LabelFrame(self, text="实时状态", padding=8)
         status_frame.pack(fill="x", **pad)
@@ -297,6 +313,9 @@ class App(tk.Tk):
         self._smart_normal_combo.config(state=state)
 
     # ---------------------------------------------------------------- control
+
+    def _apply_input_mode(self) -> None:
+        _input_mod.set_background_mode(self._input_mode.get())
 
     def _refresh_windows(self) -> None:
         wins = find_all_windows_by_keyword(CONFIG.window_title_keyword)
