@@ -219,6 +219,7 @@ class App(tk.Tk):
 
         self._win_combo = ttk.Combobox(win_frame, state="readonly", width=38)
         self._win_combo.pack(side="left", fill="x", expand=True)
+        self._win_combo.bind("<<ComboboxSelected>>", self._on_window_selected)
         ttk.Button(win_frame, text="刷新", width=6, command=self._refresh_windows).pack(side="left", padx=(6, 0))
         self._refresh_windows()
 
@@ -314,6 +315,15 @@ class App(tk.Tk):
 
     # ---------------------------------------------------------------- control
 
+    def _on_window_selected(self, _event=None) -> None:
+        idx = self._win_combo.current()
+        hwnd = self._hwnd_list[idx] if 0 <= idx < len(self._hwnd_list) else None
+        if hwnd:
+            try:
+                _force_foreground(hwnd)
+            except Exception:
+                pass
+
     def _apply_input_mode(self) -> None:
         _input_mod.set_background_mode(self._input_mode.get())
 
@@ -361,11 +371,6 @@ class App(tk.Tk):
 
         idx = self._win_combo.current()
         target_hwnd = self._hwnd_list[idx] if 0 <= idx < len(self._hwnd_list) else None
-        if target_hwnd:
-            try:
-                _force_foreground(target_hwnd)
-            except Exception:
-                pass
         engine = Engine(
             mode,
             stop_event=self._stop_event,
