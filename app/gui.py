@@ -750,7 +750,7 @@ def _check_dependencies() -> None:
             "缺少依赖",
             "以下依赖包未安装，部分功能（OCR 球数统计、球模板管理）将无法使用：\n\n"
             + "\n".join(f"  • {p}" for p in missing)
-            + "\n\n请运行：\n  pip install " + " ".join(missing),
+            + "\n\n请运行：\n  uv sync\n或单独安装：\n  uv add " + " ".join(missing),
         )
         _root.destroy()
 
